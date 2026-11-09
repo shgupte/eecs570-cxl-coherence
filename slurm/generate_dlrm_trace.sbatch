@@ -11,10 +11,8 @@
 
 set -euo pipefail
 
-cd "$SLURM_SUBMIT_DIR"
-module load python/3.10.4 pytorch/2.0.1
-
-DATASET="${DATASET:-/scratch/eecs570f26s001_class_root/eecs570f26s001_class/shgupte/dlrm_datasets/embedding_bag/2021/fbgemm_t856_bs65536_0.pt.gz}"
-OUTPUT_DIR="${OUTPUT_DIR:-/scratch/eecs570f26s001_class_root/eecs570f26s001_class/shgupte/dlrm_work/trace-v1}"
-
-python scripts/generate_dlrm_trace.py "$DATASET" "$OUTPUT_DIR"
+source "${CXL_PROJECT_ROOT:-$SLURM_SUBMIT_DIR}/env.sh"
+cxl_load_trace_modules
+: "${DATASET:?Set DATASET to the shared dataset path in env.local.sh}"
+[[ -r "$DATASET" ]] || { echo "Dataset is not readable: $DATASET" >&2; exit 1; }
+python3 "$CXL_PROJECT_ROOT/scripts/generate_dlrm_trace.py" "$DATASET" "$OUTPUT_DIR"

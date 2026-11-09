@@ -1,0 +1,5 @@
+# Build tools only. Dataset processing uses the cluster's PyTorch module.
+scons==4.5.2
+pydot==1.4.2
+pyparsing==3.0.9
+six==1.16.0

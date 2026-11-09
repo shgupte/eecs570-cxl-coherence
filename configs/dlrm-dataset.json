@@ -1,0 +1,9 @@
+{
+  "repository": "https://github.com/facebookresearch/dlrm_datasets",
+  "path": "embedding_bag/2021/fbgemm_t856_bs65536_0.pt.gz",
+  "url": "https://media.githubusercontent.com/media/facebookresearch/dlrm_datasets/main/embedding_bag/2021/fbgemm_t856_bs65536_0.pt.gz",
+  "lfs_pointer": "https://raw.githubusercontent.com/facebookresearch/dlrm_datasets/main/embedding_bag/2021/fbgemm_t856_bs65536_0.pt.gz",
+  "size_bytes": 1174963458,
+  "sha256": "8d2e7eb4f26b85daf8e95075486d740734a3233459c0b227cb7f3196d9d49cdc",
+  "description": "Synthetic embedding lookup indices, offsets, and lengths with production-representative reuse patterns."
+}

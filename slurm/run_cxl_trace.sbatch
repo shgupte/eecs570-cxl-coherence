@@ -11,21 +11,33 @@
 
 set -euo pipefail
 
-cd "$SLURM_SUBMIT_DIR"
-module load gcc/11.2.0 python/3.11.5
+source "${CXL_PROJECT_ROOT:-$SLURM_SUBMIT_DIR}/env.sh"
+cxl_load_build_modules
 
 TRACE="${TRACE:?Set TRACE to an absolute CSV packet trace path}"
 TRACE2="${TRACE2:-}"
 NAME="${NAME:-trace}"
 MAX_OUTSTANDING="${MAX_OUTSTANDING:-32}"
-GEM5="$SLURM_SUBMIT_DIR/sources/SimCXL/build/X86_CXL_MESI/gem5.opt"
-RESULT_ROOT="/scratch/eecs570f26s001_class_root/eecs570f26s001_class/shgupte/dlrm_work/sim-results"
+if [[ ! "$NAME" =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]*$ ]]; then
+    echo 'NAME must contain only letters, digits, dots, underscores, or hyphens.' >&2
+    exit 1
+fi
+if [[ "$TRACE" != /* || ( -n "$TRACE2" && "$TRACE2" != /* ) || "$RESULT_ROOT" != /* ]]; then
+    echo 'TRACE, TRACE2, and RESULT_ROOT must be absolute paths.' >&2
+    exit 1
+fi
 OUTDIR="$RESULT_ROOT/${NAME}-${SLURM_JOB_ID}"
 
 [[ -x "$GEM5" ]] || { echo "missing $GEM5" >&2; exit 1; }
 [[ -f "$TRACE" ]] || { echo "missing trace $TRACE" >&2; exit 1; }
 [[ -z "$TRACE2" || -f "$TRACE2" ]] || { echo "missing trace $TRACE2" >&2; exit 1; }
-mkdir -p "$OUTDIR"
+mkdir -p "$RESULT_ROOT"
+mkdir "$OUTDIR"
+# The CSVTRACE config parser tokenizes on whitespace and cannot quote filenames.
+if [[ "$OUTDIR" =~ [[:space:]] || "$TRACE" =~ [[:space:]] || "$TRACE2" =~ [[:space:]] ]]; then
+    echo 'Trace and output paths must not contain whitespace.' >&2
+    exit 1
+fi
 
 cat > "$OUTDIR/cpu-idle.cfg" <<'EOF'
 STATE 0 1000000000000 IDLE
@@ -58,7 +70,7 @@ EOF
 fi
 
 "$GEM5" -d "$OUTDIR" \
-    "$SLURM_SUBMIT_DIR/configs/cxl-trace.py" \
+    "$CXL_PROJECT_ROOT/configs/cxl-trace.py" \
     --cpu-config "$OUTDIR/cpu-idle.cfg" \
     "${device_args[@]}" \
     --max-outstanding "$MAX_OUTSTANDING"
