@@ -1,0 +1,204 @@
+{
+  "dataset": "/gpfs/accounts/eecs570f26s001_class_root/eecs570f26s001_class/shgupte/dlrm_datasets/embedding_bag/2021/fbgemm_t856_bs65536_0.pt.gz",
+  "method": {
+    "table_selection": "evenly spaced reuse ranks measured over the selection window",
+    "row_mapping": "sorted observed row IDs densely mapped per table",
+    "reads": "one full embedding-row read per index occurrence",
+    "updates": "one full embedding-row write per unique row",
+    "optimizer_model": "fused SGD without optimizer-state traffic"
+  },
+  "parameters": {
+    "sample_start": 0,
+    "trace_samples": 64,
+    "selection_samples": 256,
+    "selected_tables": 12,
+    "embedding_dim": 128,
+    "element_bytes": 4,
+    "row_bytes": 512,
+    "line_bytes": 64,
+    "base_address": 1073741824,
+    "table_alignment": 2097152,
+    "issue_gap_ticks": 1000
+  },
+  "dataset_shape": {
+    "tables": 856,
+    "batch_size": 65536,
+    "indices": 468084223
+  },
+  "tables": [
+    {
+      "table_id": 18,
+      "selection_accesses": 2701,
+      "selection_unique_rows": 2270,
+      "selection_reuse": 1.1898678414096917,
+      "trace_window_accesses": 532,
+      "trace_accesses": 532,
+      "trace_unique_rows": 496,
+      "trace_reuse": 1.0725806451612903,
+      "base_address": 1073741824,
+      "row_bytes": 512,
+      "table_bytes": 253952
+    },
+    {
+      "table_id": 142,
+      "selection_accesses": 3032,
+      "selection_unique_rows": 1706,
+      "selection_reuse": 1.7772567409144198,
+      "trace_window_accesses": 834,
+      "trace_accesses": 834,
+      "trace_unique_rows": 655,
+      "trace_reuse": 1.2732824427480915,
+      "base_address": 1075838976,
+      "row_bytes": 512,
+      "table_bytes": 335360
+    },
+    {
+      "table_id": 220,
+      "selection_accesses": 775,
+      "selection_unique_rows": 57,
+      "selection_reuse": 13.596491228070175,
+      "trace_window_accesses": 167,
+      "trace_accesses": 167,
+      "trace_unique_rows": 45,
+      "trace_reuse": 3.7111111111111112,
+      "base_address": 1077936128,
+      "row_bytes": 512,
+      "table_bytes": 23040
+    },
+    {
+      "table_id": 254,
+      "selection_accesses": 6811,
+      "selection_unique_rows": 4045,
+      "selection_reuse": 1.6838071693448702,
+      "trace_window_accesses": 1524,
+      "trace_accesses": 1524,
+      "trace_unique_rows": 1276,
+      "trace_reuse": 1.1943573667711598,
+      "base_address": 1080033280,
+      "row_bytes": 512,
+      "table_bytes": 653312
+    },
+    {
+      "table_id": 318,
+      "selection_accesses": 256,
+      "selection_unique_rows": 256,
+      "selection_reuse": 1.0,
+      "trace_window_accesses": 64,
+      "trace_accesses": 64,
+      "trace_unique_rows": 64,
+      "trace_reuse": 1.0,
+      "base_address": 1082130432,
+      "row_bytes": 512,
+      "table_bytes": 32768
+    },
+    {
+      "table_id": 549,
+      "selection_accesses": 256,
+      "selection_unique_rows": 4,
+      "selection_reuse": 64.0,
+      "trace_window_accesses": 64,
+      "trace_accesses": 64,
+      "trace_unique_rows": 3,
+      "trace_reuse": 21.333333333333332,
+      "base_address": 1084227584,
+      "row_bytes": 512,
+      "table_bytes": 1536
+    },
+    {
+      "table_id": 635,
+      "selection_accesses": 256,
+      "selection_unique_rows": 52,
+      "selection_reuse": 4.923076923076923,
+      "trace_window_accesses": 64,
+      "trace_accesses": 64,
+      "trace_unique_rows": 13,
+      "trace_reuse": 4.923076923076923,
+      "base_address": 1086324736,
+      "row_bytes": 512,
+      "table_bytes": 6656
+    },
+    {
+      "table_id": 703,
+      "selection_accesses": 582,
+      "selection_unique_rows": 367,
+      "selection_reuse": 1.5858310626702998,
+      "trace_window_accesses": 132,
+      "trace_accesses": 132,
+      "trace_unique_rows": 116,
+      "trace_reuse": 1.1379310344827587,
+      "base_address": 1088421888,
+      "row_bytes": 512,
+      "table_bytes": 59392
+    },
+    {
+      "table_id": 808,
+      "selection_accesses": 2753,
+      "selection_unique_rows": 1278,
+      "selection_reuse": 2.1541471048513303,
+      "trace_window_accesses": 1130,
+      "trace_accesses": 1130,
+      "trace_unique_rows": 748,
+      "trace_reuse": 1.5106951871657754,
+      "base_address": 1090519040,
+      "row_bytes": 512,
+      "table_bytes": 382976
+    },
+    {
+      "table_id": 846,
+      "selection_accesses": 319,
+      "selection_unique_rows": 114,
+      "selection_reuse": 2.7982456140350878,
+      "trace_window_accesses": 74,
+      "trace_accesses": 74,
+      "trace_unique_rows": 52,
+      "trace_reuse": 1.4230769230769231,
+      "base_address": 1092616192,
+      "row_bytes": 512,
+      "table_bytes": 26624
+    },
+    {
+      "table_id": 848,
+      "selection_accesses": 275,
+      "selection_unique_rows": 145,
+      "selection_reuse": 1.896551724137931,
+      "trace_window_accesses": 64,
+      "trace_accesses": 64,
+      "trace_unique_rows": 51,
+      "trace_reuse": 1.2549019607843137,
+      "base_address": 1094713344,
+      "row_bytes": 512,
+      "table_bytes": 26112
+    },
+    {
+      "table_id": 851,
+      "selection_accesses": 512,
+      "selection_unique_rows": 2,
+      "selection_reuse": 256.0,
+      "trace_window_accesses": 128,
+      "trace_accesses": 128,
+      "trace_unique_rows": 2,
+      "trace_reuse": 64.0,
+      "base_address": 1096810496,
+      "row_bytes": 512,
+      "table_bytes": 1024
+    }
+  ],
+  "outputs": {
+    "accelerator_reads": {
+      "path": "accelerator_reads.csv",
+      "requests": 38216,
+      "sha256": "e672fa7266593194fd1c3e4237a63b79c20aadfa4547041d89923d38b3318546"
+    },
+    "unique_row_updates": {
+      "path": "unique_row_updates.csv",
+      "requests": 28168,
+      "sha256": "38ca386a0a815483de431e44fe7bd76268851b580bdc7e6f523b4894f58779b0"
+    },
+    "row_map": "row_map.csv"
+  },
+  "generation": {
+    "seconds": 108.04545380012132,
+    "max_rss_kib": 4020032,
+    "torch_version": "2.0.1+cu118"
+  }
+}

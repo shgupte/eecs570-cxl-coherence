@@ -1,0 +1,386 @@
+diff --git a/src/cpu/testers/traffic_gen/SConscript b/src/cpu/testers/traffic_gen/SConscript
+index f31bd53cdd..f5c82ea6c7 100644
+--- a/src/cpu/testers/traffic_gen/SConscript
++++ b/src/cpu/testers/traffic_gen/SConscript
+@@ -40,6 +40,7 @@ Import('*')
+ 
+ Source('base.cc')
+ Source('base_gen.cc')
++Source('csv_trace_gen.cc')
+ Source('dram_gen.cc')
+ Source('dram_rot_gen.cc')
+ Source('exit_gen.cc')
+@@ -63,8 +64,7 @@ if env['USE_PYTHON']:
+     Source('pygen.cc', add_tags='python')
+     SimObject('PyTrafficGen.py', sim_objects=['PyTrafficGen'])
+ 
+-# Only build the traffic generator if we have support for protobuf as the
+-# tracing relies on it
+-SimObject('TrafficGen.py', sim_objects=['TrafficGen'], tags='protobuf')
++# CSV traces do not require protobuf, so the traffic generator is always built.
++SimObject('TrafficGen.py', sim_objects=['TrafficGen'])
+ Source('trace_gen.cc', tags='protobuf')
+-Source('traffic_gen.cc', tags='protobuf')
++Source('traffic_gen.cc')
+diff --git a/src/cpu/testers/traffic_gen/base.cc b/src/cpu/testers/traffic_gen/base.cc
+index 03cf2a939b..46ec90d091 100644
+--- a/src/cpu/testers/traffic_gen/base.cc
++++ b/src/cpu/testers/traffic_gen/base.cc
+@@ -42,6 +42,7 @@
+ #include "base/random.hh"
+ #include "config/have_protobuf.hh"
+ #include "cpu/testers/traffic_gen/base_gen.hh"
++#include "cpu/testers/traffic_gen/csv_trace_gen.hh"
+ #include "cpu/testers/traffic_gen/dram_gen.hh"
+ #include "cpu/testers/traffic_gen/dram_rot_gen.hh"
+ #include "cpu/testers/traffic_gen/exit_gen.hh"
+@@ -554,6 +555,15 @@ BaseTrafficGen::createTrace(Tick duration,
+ #endif
+ }
+ 
++std::shared_ptr<BaseGen>
++BaseTrafficGen::createCsvTrace(
++    Tick duration, const std::string& trace_file, Addr addr_offset)
++{
++    return std::shared_ptr<BaseGen>(
++        new CsvTraceGen(
++            *this, requestorId, duration, trace_file, addr_offset));
++}
++
+ bool
+ BaseTrafficGen::recvTimingResp(PacketPtr pkt)
+ {
+diff --git a/src/cpu/testers/traffic_gen/base.hh b/src/cpu/testers/traffic_gen/base.hh
+index 530da6d718..b000c83497 100644
+--- a/src/cpu/testers/traffic_gen/base.hh
++++ b/src/cpu/testers/traffic_gen/base.hh
+@@ -329,6 +329,10 @@ class BaseTrafficGen : public ClockedObject
+         Tick duration,
+         const std::string& trace_file, Addr addr_offset);
+ 
++    std::shared_ptr<BaseGen> createCsvTrace(
++        Tick duration,
++        const std::string& trace_file, Addr addr_offset);
++
+   protected:
+     void start();
+ 
+diff --git a/src/cpu/testers/traffic_gen/csv_trace_gen.cc b/src/cpu/testers/traffic_gen/csv_trace_gen.cc
+new file mode 100644
+index 0000000000..195f5fcd0e
+--- /dev/null
++++ b/src/cpu/testers/traffic_gen/csv_trace_gen.cc
+@@ -0,0 +1,120 @@
++/*
++ * A lightweight CSV packet trace generator.
++ */
++
++#include "cpu/testers/traffic_gen/csv_trace_gen.hh"
++
++#include <algorithm>
++#include <sstream>
++
++#include "base/logging.hh"
++#include "base/trace.hh"
++#include "debug/TrafficGen.hh"
++#include "sim/cur_tick.hh"
++
++namespace gem5
++{
++
++CsvTraceGen::CsvTraceGen(
++    SimObject &obj, RequestorID requestor_id, Tick duration,
++    const std::string &trace_file, Addr addr_offset)
++    : BaseGen(obj, requestor_id, duration),
++      filename(trace_file),
++      addrOffset(addr_offset)
++{
++}
++
++bool
++CsvTraceGen::readElement(TraceElement &element)
++{
++    std::string line;
++    while (std::getline(trace, line)) {
++        if (line.empty() || line[0] == '#') {
++            continue;
++        }
++
++        std::replace(line.begin(), line.end(), ',', ' ');
++        std::istringstream input(line);
++        char operation;
++        Addr address;
++        unsigned size;
++        Tick tick;
++        if (!(input >> operation >> address >> size >> tick)) {
++            fatal("Malformed CSV trace line in %s: %s\n", filename, line);
++        }
++        if (operation != 'r' && operation != 'w') {
++            fatal("Unknown CSV trace operation '%c' in %s\n",
++                  operation, filename);
++        }
++        if (size == 0) {
++            fatal("Zero-sized CSV trace request in %s\n", filename);
++        }
++        if (!firstElement && tick < lastFileTick) {
++            fatal("CSV trace ticks are not monotonic in %s\n", filename);
++        }
++
++        element.cmd = operation == 'r' ? MemCmd::ReadReq : MemCmd::WriteReq;
++        element.addr = address;
++        element.size = size;
++        element.tick = tick;
++        lastFileTick = tick;
++        firstElement = false;
++        return true;
++    }
++    return false;
++}
++
++void
++CsvTraceGen::enter()
++{
++    if (trace.is_open()) {
++        trace.close();
++    }
++    trace.clear();
++    trace.open(filename);
++    if (!trace.is_open()) {
++        fatal("Unable to open CSV packet trace %s\n", filename);
++    }
++
++    tickOffset = curTick();
++    lastFileTick = 0;
++    firstElement = true;
++    hasNext = readElement(nextElement);
++}
++
++PacketPtr
++CsvTraceGen::getNextPacket()
++{
++    panic_if(!hasNext, "CSV trace %s has no next packet\n", filename);
++    const TraceElement current = nextElement;
++    hasNext = readElement(nextElement);
++
++    DPRINTF(TrafficGen, "CsvTraceGen: %s %#x size %u tick %llu\n",
++            current.cmd.isRead() ? "read" : "write",
++            current.addr + addrOffset, current.size, current.tick);
++    return getPacket(
++        current.addr + addrOffset, current.size, current.cmd);
++}
++
++Tick
++CsvTraceGen::nextPacketTick(bool elastic, Tick delay) const
++{
++    if (!hasNext) {
++        return MaxTick;
++    }
++    if (elastic) {
++        tickOffset += delay;
++    }
++    return std::max(tickOffset + nextElement.tick, curTick());
++}
++
++void
++CsvTraceGen::exit()
++{
++    if (hasNext) {
++        warn("CSV trace player %s did not replay the entire trace\n", name());
++    }
++    trace.close();
++}
++
++} // namespace gem5
+diff --git a/src/cpu/testers/traffic_gen/csv_trace_gen.hh b/src/cpu/testers/traffic_gen/csv_trace_gen.hh
+new file mode 100644
+index 0000000000..bb5484736a
+--- /dev/null
++++ b/src/cpu/testers/traffic_gen/csv_trace_gen.hh
+@@ -0,0 +1,51 @@
++/*
++ * A lightweight CSV packet trace generator.
++ */
++
++#ifndef __CPU_TRAFFIC_GEN_CSV_TRACE_GEN_HH__
++#define __CPU_TRAFFIC_GEN_CSV_TRACE_GEN_HH__
++
++#include <fstream>
++#include <string>
++
++#include "base_gen.hh"
++#include "mem/packet.hh"
++
++namespace gem5
++{
++
++class CsvTraceGen : public BaseGen
++{
++  private:
++    struct TraceElement
++    {
++        MemCmd cmd = MemCmd::InvalidCmd;
++        Addr addr = 0;
++        unsigned size = 0;
++        Tick tick = 0;
++    };
++
++    bool readElement(TraceElement &element);
++
++    const std::string filename;
++    const Addr addrOffset;
++    std::ifstream trace;
++    TraceElement nextElement;
++    bool hasNext = false;
++    mutable Tick tickOffset = 0;
++    Tick lastFileTick = 0;
++    bool firstElement = true;
++
++  public:
++    CsvTraceGen(SimObject &obj, RequestorID requestor_id, Tick duration,
++                const std::string &trace_file, Addr addr_offset);
++
++    void enter() override;
++    PacketPtr getNextPacket() override;
++    void exit() override;
++    Tick nextPacketTick(bool elastic, Tick delay) const override;
++};
++
++} // namespace gem5
++
++#endif // __CPU_TRAFFIC_GEN_CSV_TRACE_GEN_HH__
+diff --git a/src/cpu/testers/traffic_gen/traffic_gen.cc b/src/cpu/testers/traffic_gen/traffic_gen.cc
+index 6eab4600ac..6f738f1ff6 100644
+--- a/src/cpu/testers/traffic_gen/traffic_gen.cc
++++ b/src/cpu/testers/traffic_gen/traffic_gen.cc
+@@ -162,15 +162,22 @@ TrafficGen::parseConfig()
+ 
+                 is >> id >> duration >> mode;
+ 
+-                if (mode == "TRACE") {
++                if (mode == "TRACE" || mode == "CSVTRACE") {
+                     std::string traceFile;
+                     Addr addrOffset;
+ 
+                     is >> traceFile >> addrOffset;
+                     traceFile = resolveFile(traceFile);
+ 
+-                    states[id] = createTrace(duration, traceFile, addrOffset);
+-                    DPRINTF(TrafficGen, "State: %d TraceGen\n", id);
++                    if (mode == "TRACE") {
++                        states[id] =
++                            createTrace(duration, traceFile, addrOffset);
++                        DPRINTF(TrafficGen, "State: %d TraceGen\n", id);
++                    } else {
++                        states[id] =
++                            createCsvTrace(duration, traceFile, addrOffset);
++                        DPRINTF(TrafficGen, "State: %d CsvTraceGen\n", id);
++                    }
+                 } else if (mode == "IDLE") {
+                     states[id] = createIdle(duration);
+                     DPRINTF(TrafficGen, "State: %d IdleGen\n", id);
+diff --git a/src/python/gem5/components/cachehierarchies/ruby/cxl_mesi_two_level_cache_hierarchy.py b/src/python/gem5/components/cachehierarchies/ruby/cxl_mesi_two_level_cache_hierarchy.py
+index 827b529841..8a83e8a983 100644
+--- a/src/python/gem5/components/cachehierarchies/ruby/cxl_mesi_two_level_cache_hierarchy.py
++++ b/src/python/gem5/components/cachehierarchies/ruby/cxl_mesi_two_level_cache_hierarchy.py
+@@ -140,35 +140,49 @@ class CXLMESITwoLevelCacheHierarchy(
+ 
+             self._l1_controllers.append(cache)
+ 
+-        cxl_cache = L1Cache(
+-            self._l1i_size,
+-            self._l1i_assoc,
+-            self._l1d_size,
+-            self._l1d_assoc,
+-            self.ruby_system.network,
+-            False,
+-            self._num_l2_banks,
+-            cache_line_size,
+-            board.processor.get_isa(),
+-            board.get_clock_domain(),
+-            l1_request_latency=24,
+-            l1_response_latency=24,
+-            mandatory_queue_latency=24
++        cxl_trace_generators = list(
++            getattr(board, "cxl_trace_generators", []) or []
+         )
+-        cxl_cache.sequencer = RubySequencer(
+-            version=len(self._l1_controllers),
+-            dcache=cxl_cache.L1Dcache,
+-            clk_domain=cxl_cache.clk_domain,
+-            max_outstanding_requests=180,
+-        )
+-        cxl_cache.ruby_system = self.ruby_system
++        if not cxl_trace_generators and getattr(
++            board, "cxl_trace_generator", None
++        ) is not None:
++            cxl_trace_generators = [board.cxl_trace_generator]
++        if not cxl_trace_generators:
++            cxl_trace_generators = [None]
++
++        for cxl_trace_generator in cxl_trace_generators:
++            cxl_cache = L1Cache(
++                self._l1i_size,
++                self._l1i_assoc,
++                self._l1d_size,
++                self._l1d_assoc,
++                self.ruby_system.network,
++                False,
++                self._num_l2_banks,
++                cache_line_size,
++                board.processor.get_isa(),
++                board.get_clock_domain(),
++                l1_request_latency=24,
++                l1_response_latency=24,
++                mandatory_queue_latency=24
++            )
++            cxl_cache.sequencer = RubySequencer(
++                version=len(self._l1_controllers),
++                dcache=cxl_cache.L1Dcache,
++                clk_domain=cxl_cache.clk_domain,
++                max_outstanding_requests=180,
++            )
++            cxl_cache.ruby_system = self.ruby_system
+ 
+-        accel = getattr(board.pc.south_bridge, 'pcie_device', None)
+-        if accel is None:
+-            accel = board.pc.south_bridge.cxl_device
+-        accel.connectCachedPorts(cxl_cache.sequencer.in_ports)
++            if cxl_trace_generator is not None:
++                cxl_trace_generator.port = cxl_cache.sequencer.in_ports
++            else:
++                accel = getattr(board.pc.south_bridge, 'pcie_device', None)
++                if accel is None:
++                    accel = board.pc.south_bridge.cxl_device
++                accel.connectCachedPorts(cxl_cache.sequencer.in_ports)
+ 
+-        self._l1_controllers.append(cxl_cache)
++            self._l1_controllers.append(cxl_cache)
+ 
+         self._l2_controllers = [
+             L2Cache(
+@@ -192,12 +206,19 @@ class CXLMESITwoLevelCacheHierarchy(
+             Directory(self.ruby_system.network, cache_line_size, range, port)
+             for range, port in board.get_mem_ports()
+         ]
+-        cxl_accel = getattr(board.pc.south_bridge, 'pcie_device', None)
+-        if cxl_accel is None:
+-            cxl_accel = board.pc.south_bridge.cxl_device
+-        if hasattr(cxl_accel, 'cxl_rsp_port'):
+-            self._directory_controllers.append(Directory(self.ruby_system.network, 
+-                cache_line_size, cxl_accel.cxl_mem_range, cxl_accel.cxl_rsp_port))
++        if cxl_trace_generators == [None]:
++            cxl_accel = getattr(board.pc.south_bridge, 'pcie_device', None)
++            if cxl_accel is None:
++                cxl_accel = board.pc.south_bridge.cxl_device
++            if hasattr(cxl_accel, 'cxl_rsp_port'):
++                self._directory_controllers.append(
++                    Directory(
++                        self.ruby_system.network,
++                        cache_line_size,
++                        cxl_accel.cxl_mem_range,
++                        cxl_accel.cxl_rsp_port,
++                    )
++                )
+ 
+         # TODO: Make this prettier: The problem is not being able to proxy
+         # the ruby system correctly
