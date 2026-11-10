@@ -23,6 +23,10 @@ class SimConfig:
     request_bytes: int = 8
     track_versions: bool = False
     collect_rows: bool = False
+    protocol: str = "vi"
+    cache_bytes: int | None = None
+    invalidation_bytes: int = 64
+    acknowledgement_bytes: int = 64
 
     def __post_init__(self) -> None:
         if self.num_gpus < 1:
@@ -33,6 +37,12 @@ class SimConfig:
             raise ValueError("bytes_per_element must be positive")
         if self.request_bytes < 0:
             raise ValueError("request_bytes must be non-negative")
+        if self.protocol != "vi":
+            raise ValueError("protocol must be vi")
+        if self.cache_bytes is not None and self.cache_bytes < 1:
+            raise ValueError("cache_bytes must be positive or unlimited")
+        if self.invalidation_bytes < 0 or self.acknowledgement_bytes < 0:
+            raise ValueError("coherence message sizes must be non-negative")
 
     @property
     def embedding_bytes(self) -> int:
@@ -42,8 +52,18 @@ class SimConfig:
     def gradient_bytes(self) -> int:
         return self.embedding_bytes
 
+    @property
+    def cache_rows(self) -> int | None:
+        """How many whole rows fit. ``None`` means the cache is unlimited."""
+        if self.cache_bytes is None:
+            return None
+        if self.cache_bytes < self.embedding_bytes:
+            raise ValueError("cache_bytes is smaller than one embedding row")
+        return self.cache_bytes // self.embedding_bytes
+
     def to_dict(self) -> dict:
         data = asdict(self)
         data["embedding_bytes"] = self.embedding_bytes
         data["gradient_bytes"] = self.gradient_bytes
+        data["cache_rows"] = None if self.cache_bytes is None else self.cache_bytes // self.embedding_bytes
         return data

@@ -5,7 +5,7 @@ EECS 570. Question: what coherence costs when embedding rows are updated through
 ## Where things are
 
 - Simulator checkout: `~/cxl_gl_agent/sources/SimCXL`, base `edddc2054bcdafdc7537b20c99605f2181bda9dc`. Binary: `build/X86_CXL_MESI/gem5.opt` (rebuilt 8 Nov 2026). Protobuf is off, so replay is CSV, not gem5 packet traces.
-- Experiment repo: `/home/shgupte/eecs570-cxl-coherence`, GitHub `https://github.com/shgupte/eecs570-cxl-coherence`. The first commit has the SimCXL patch, the litmus/shared/sharded stats, and the two-accelerator traces. `traces/dp-split/` is the 64-example split. `dlrm-sim/` is the Python traffic counter. Its one-step result is `results/dlrm-torchrec-one-step/`.
+- Experiment repo: `/home/shgupte/eecs570-cxl-coherence`, GitHub `https://github.com/shgupte/eecs570-cxl-coherence`. The first commit has the SimCXL patch, the litmus/shared/sharded stats, and the two-accelerator traces. `traces/dp-split/` is the 64-example split. `dlrm-sim/` is the Python traffic counter. `results/dlrm-torchrec-one-step/` is the sharded count. `results/dlrm-vi-one-step/` is the valid/invalid cache on the same batch.
 - Dataset, not in git: `/scratch/eecs570f26s001_class_root/eecs570f26s001_class/shgupte/dlrm_datasets/embedding_bag/2021/fbgemm_t856_bs65536_0.pt.gz`. One batch. 65,536 examples, 856 tables, 468,084,223 lookups. The other `.pt.gz` names in that directory are Git LFS pointers, not batches.
 - Slurm account `eecs570f26s001_class`, partition `standard`. Replay script: `~/cxl_gl_agent/slurm/run_cxl_trace.sbatch` with `TRACE` and optional `TRACE2`.
 
@@ -72,6 +72,23 @@ On the full batch, 9 Nov 2026:
 
 The 40.7 GB is the useful embedding data. The 201 GB count includes an empty slot for every example and every table. Use 40.7 GB, not 201 GB, when comparing with coherence. One remote reader of one row is 512 bytes out and 512 bytes back, 1,024 bytes, with no invalidation. There is no second real batch, so this does not say whether the same rows are hot on the next step.
 
+## Valid/invalid cache on the same batch
+
+`dlrm-sim` can also run `--model coherent --protocol vi`. Readers fetch full rows and pool locally. The cache holds a row until the owner updates it. Every row that was read is updated, so every copy fetched in a step is invalidated before the next step. A repeated pass is labeled synthetic. The run below uses an unlimited cache, which is the best case for this protocol. Invalidation and acknowledgement messages are 64 bytes each.
+
+One step, same 8 GPUs and same owners:
+
+| | Sharded, useful data | Valid/invalid cache |
+|---|---:|---:|
+| Forward | 43.9 GB | 43.2 GB |
+| Backward | 40.7 GB | 42.5 GB |
+| Invalidations and replies | 0 | 10.6 GB |
+| Total | 84.6 GB | 96.4 GB |
+
+The second pass costs the same 96.4 GB. The cache absorbs 326,468,058 repeated lookups inside the step and still misses 83,095,963 times, once per distinct remote row. Those 83 million copies are invalidated. About 12 million owner-local uses never enter the cache. Average sharing of 1.54 does not mean little coherence traffic: there are tens of millions of rows, and most remote uses install one copy that is then thrown out.
+
+The extra 11.8 GB is not only protocol overhead. About 10.6 GB is the invalidations and replies. About 1.9 GB more embedding data and 1.9 GB more gradients come from sending full rows instead of pooled results. The cache sends about 2.6 GB less in row ids, because it requests each remote row once rather than every duplicate index. MSI write-back would not remove the invalidations. Other chips still cannot keep the old value after the owner writes.
+
 ## What is established
 
 If two accelerators cache the same embedding line and one writes it, the other copy is invalidated and the next read misses. On the cold 2,048-line sample that cost 2,048 invalidations, 2,048 upgrades, 491,520 extra coherence bytes, and about 38 ns of read latency. The batch-split run shows the same mechanism on real example lookups, and also shows that a 128 KiB L1 turns most of this slice into capacity misses.
@@ -84,4 +101,6 @@ This does not show a CXL or PCIe link filling up, and it does not time a trainin
 
 ## Next step
 
-Keep both tools. Use the Python count as the ordinary-send price. In SimCXL, replay a small set of rows that several GPUs touch, for several steps: read, one owner write, read again. Keep a same-sized set of single-user rows as the control. Make the L1 large enough, or the set small enough, that the rows fit. Compare the extra coherence bytes and the extra read delay with 1,024 bytes per other reader. Add a third accelerator only after that trace is stable.
+Ordinary VI coherence loses on this batch because it installs a remote copy and then invalidates it. A faster invalidation does not fix that. The design to try is one that invalidates less: let a single remote user keep the row and apply the update itself, and for rows that several GPUs read in the same step either use the normal send or allow the copy to stay stale for a few steps.
+
+Keep the gem5 check for the mechanism. Replay a small set of shared rows for several steps, with a cache large enough to hold them, and compare the extra coherence bytes and the extra read delay with the 1,024-byte send. Add a third accelerator only after that trace is stable.

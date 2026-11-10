@@ -1,0 +1,28 @@
+{
+  "source": "/scratch/eecs570f26s001_class_root/eecs570f26s001_class/shgupte/dlrm_datasets/embedding_bag/2021/fbgemm_t856_bs65536_0.pt.gz",
+  "synthetic": false,
+  "num_tables": 856,
+  "batch_size": 65536,
+  "table_ids_head": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7
+  ],
+  "sample_id_first": 0,
+  "sample_id_last": 65535,
+  "raw_accesses": 468084223,
+  "index_storage": "float32",
+  "lengths_shape": [
+    856,
+    65536
+  ],
+  "offsets": 56098817,
+  "notes": [
+    "indices were stored as float32; values were checked to be finite and integral, and are cast to int64 per GPU window"
+  ]
+}

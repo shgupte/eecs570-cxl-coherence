@@ -89,6 +89,16 @@ Defaults `embedding_dim=128` and `bytes_per_element=4` are configuration. The
 access file does not store them. They match the 512-byte row used by the
 earlier CXL traces. Sum and mean pooling move the same number of vectors.
 
+### Valid/invalid cache
+
+`--model coherent --protocol vi` keeps a remote row cache on each GPU.
+Readers fetch full rows and pool locally. `--cache-bytes` sets the capacity.
+Omit it, or pass `unlimited`, for a cache that holds every fetched row.
+An update invalidates every copy of a row that was read, so the next step
+misses on those rows. Duplicate touches in the same step can hit. Gradients
+are one vector per remote row. Invalidation and acknowledgement sizes default
+to 64 bytes each.
+
 ## Run
 
 On the course cluster:

@@ -93,6 +93,13 @@ class StepResult:
     allgather_backward_bytes: int = 0
     per_row_remote_gradient_vectors: int = 0
     row_gradient_applications: int = 0
+    protocol: str = ""
+    cache_bytes: int | None = None
+    cache_misses: int = 0
+    cache_evictions: int = 0
+    invalidations: int = 0
+    invalidation_bytes: int = 0
+    acknowledgement_bytes: int = 0
 
 
 def collect_unique_accesses(

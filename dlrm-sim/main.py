@@ -2,8 +2,9 @@
 """Run a conventional DLRM communication model.
 
 The default is TorchRec-style pooled row-wise sharding. ``--model row-transfer``
-keeps the earlier full-vector reference. The coherent-cache model is not
-implemented. Both models share the sample partition and the ownership map.
+keeps the full-vector reference. ``--model coherent --protocol vi`` uses a
+valid/invalid cache of full rows. All three share the sample partition and
+the ownership map.
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ import sys
 from pathlib import Path
 
 from baseline import simulate
+from coherent import simulate_coherent
 from config import SimConfig
 from meta_trace import load_meta_batch, subset_batch
 from metrics import ASSUMPTIONS, export_csv, export_json
@@ -36,7 +38,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--embedding-dim", type=int, default=128)
     parser.add_argument("--bytes-per-element", type=int, default=4)
     parser.add_argument("--request-bytes", type=int, default=8)
-    parser.add_argument("--model", choices=("torchrec", "row-transfer"), default="torchrec")
+    parser.add_argument("--model", choices=("torchrec", "row-transfer", "coherent"), default="torchrec")
+    parser.add_argument("--protocol", choices=("vi",), default="vi")
+    parser.add_argument(
+        "--cache-bytes",
+        default="unlimited",
+        help="remote-cache capacity in bytes, or unlimited",
+    )
+    parser.add_argument("--invalidation-bytes", type=int, default=64)
+    parser.add_argument("--ack-bytes", type=int, default=64)
     parser.add_argument("--ownership", choices=("contiguous", "modulo"), default="contiguous")
     parser.add_argument("--tables", type=int, help="use the first N table ids in file order")
     parser.add_argument("--sample-start", type=int, default=0)
@@ -78,6 +88,10 @@ def _load_workload(args: argparse.Namespace):
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
+    if args.cache_bytes == "unlimited":
+        cache_bytes = None
+    else:
+        cache_bytes = int(args.cache_bytes)
     config = SimConfig(
         num_gpus=args.num_gpus,
         embedding_dim=args.embedding_dim,
@@ -85,6 +99,10 @@ def main(argv: list[str] | None = None) -> int:
         request_bytes=args.request_bytes,
         track_versions=args.track_versions,
         collect_rows=args.collect_rows,
+        protocol=args.protocol,
+        cache_bytes=cache_bytes,
+        invalidation_bytes=args.invalidation_bytes,
+        acknowledgement_bytes=args.ack_bytes,
     )
     print("loading", flush=True)
     batch, origin, subset = _load_workload(args)
@@ -117,6 +135,8 @@ def main(argv: list[str] | None = None) -> int:
         ownership = Ownership.modulo(config.num_gpus)
     if args.model == "torchrec":
         results, versions = simulate_torchrec(steps, config, ownership)
+    elif args.model == "coherent":
+        results, versions, _cache = simulate_coherent(steps, config, ownership)
     else:
         results, versions = simulate(steps, config, ownership)
     workload = {
@@ -155,7 +175,9 @@ def main(argv: list[str] | None = None) -> int:
         f"forward_bytes={last.forward_bytes} backward_bytes={last.backward_bytes} "
         f"updated_rows={last.updated_rows} "
         f"remote_partials={last.remote_partial_pooled_vectors} "
-        f"reduce_scatter_bytes={last.reduce_scatter_bytes}"
+        f"reduce_scatter_bytes={last.reduce_scatter_bytes} "
+        f"cache_hits={last.cache_hits} cache_misses={last.cache_misses} "
+        f"invalidations={last.invalidations}"
     )
     if versions is not None:
         print(f"versioned_rows={len(versions)}")

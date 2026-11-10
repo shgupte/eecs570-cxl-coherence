@@ -40,12 +40,28 @@ STEP_FIELDS = (
     "allgather_backward_bytes",
     "row_gradient_applications",
     "updated_rows",
+    "protocol",
+    "cache_bytes",
     "cache_hits",
+    "cache_misses",
+    "cache_evictions",
+    "invalidations",
+    "invalidation_bytes",
+    "acknowledgement_bytes",
     "logical_pair_transfers",
     "mean_sharing",
 )
 
-_TEXT_FIELDS = {"step", "model", "ownership", "origin", "cross_step_locality", "mean_sharing"}
+_TEXT_FIELDS = {
+    "step",
+    "model",
+    "ownership",
+    "origin",
+    "cross_step_locality",
+    "protocol",
+    "cache_bytes",
+    "mean_sharing",
+}
 
 
 def _step_row(result: StepResult) -> dict:
@@ -79,7 +95,20 @@ def _step_row(result: StepResult) -> dict:
         "allgather_backward_bytes": result.allgather_backward_bytes,
         "row_gradient_applications": result.row_gradient_applications,
         "updated_rows": result.updated_rows,
+        "protocol": result.protocol,
+        "cache_bytes": (
+            ""
+            if result.model != "coherent"
+            else "unlimited"
+            if result.cache_bytes is None
+            else result.cache_bytes
+        ),
         "cache_hits": result.cache_hits,
+        "cache_misses": result.cache_misses,
+        "cache_evictions": result.cache_evictions,
+        "invalidations": result.invalidations,
+        "invalidation_bytes": result.invalidation_bytes,
+        "acknowledgement_bytes": result.acknowledgement_bytes,
         "logical_pair_transfers": result.logical_pair_transfers,
         "mean_sharing": result.mean_sharing,
     }
@@ -166,6 +195,12 @@ def export_csv(directory: Path, results: list[StepResult]) -> tuple[Path, Path]:
                     ("remote_partial", "forward_response_vectors"),
                     ("pooled_gradient", "backward_vectors"),
                 )
+            elif result.model == "coherent":
+                phases = (
+                    ("row_fetch", "forward_request_vectors"),
+                    ("row_data", "forward_response_vectors"),
+                    ("row_gradient", "backward_vectors"),
+                )
             else:
                 phases = (
                     ("forward_request", "forward_request_vectors"),
@@ -190,7 +225,8 @@ ASSUMPTIONS = [
     "The row-transfer model is the earlier reference: one full vector and one gradient per unique remote row, with no pooling.",
     "Both models update each distinct accessed row once, after gradient aggregation, and they share the ownership map.",
     "A future coherent cache that pools on the requesting GPU must send per-row gradients. It does not reuse the pooled all-gather unchanged.",
-    "There is no remote cache in either conventional model.",
+    "There is no remote cache in the torchrec or row-transfer models.",
+    "The coherent model is a valid/invalid cache of full rows. Readers pool locally and send one gradient per remote row. Every accessed row is updated, so those copies are invalidated before the next step. cache_bytes empty means unlimited. A repeated batch is a synthetic reuse test.",
     "Repeating a batch is a synthetic sequence. It is not measured production temporal locality.",
     "embedding_dim and bytes_per_element are configuration, not fields of the Meta access file. Sum and mean pooling move the same number of vectors.",
 ]
