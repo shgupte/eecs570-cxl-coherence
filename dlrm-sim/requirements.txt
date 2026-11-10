@@ -1,0 +1,4 @@
+numpy>=1.22
+pytest>=7.0
+# PyTorch is imported only by meta_trace.load_meta_batch for .pt and .pt.gz files.
+# On the course cluster: module load python/3.10.4 pytorch/2.0.1
