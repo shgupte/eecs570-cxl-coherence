@@ -1,0 +1,104 @@
+{
+  "dataset": "/scratch/eecs570f26s001_class_root/eecs570f26s001_class/shgupte/dlrm_datasets/embedding_bag/2021/fbgemm_t856_bs65536_0.pt.gz",
+  "model": "sharded-memory-reads",
+  "note": "Each accelerator reads the rows in its samples from the owning shard. The owner writes each distinct row once after every read. Addresses are packed into the 2 GB shard. This is not pooled all-to-all.",
+  "sample_start": 0,
+  "samples": 16,
+  "tables": [
+    0
+  ],
+  "num_gpus": 8,
+  "shard_bytes": 2147483648,
+  "row_bytes": 512,
+  "line_bytes": 64,
+  "issue_gap": 1000,
+  "phase_gap": 100000,
+  "table_rows": {
+    "0": 8006748
+  },
+  "read_done_tick": 640000,
+  "write_start_tick": 740000,
+  "last_tick": 1236000,
+  "accelerators": [
+    {
+      "gpu": 0,
+      "sample_start": 0,
+      "sample_end": 2,
+      "local_row_reads": 4,
+      "remote_row_reads": 20,
+      "row_writes": 62,
+      "requests": 688,
+      "truncated": false
+    },
+    {
+      "gpu": 1,
+      "sample_start": 2,
+      "sample_end": 4,
+      "local_row_reads": 6,
+      "remote_row_reads": 54,
+      "row_writes": 44,
+      "requests": 832,
+      "truncated": false
+    },
+    {
+      "gpu": 2,
+      "sample_start": 4,
+      "sample_end": 6,
+      "local_row_reads": 9,
+      "remote_row_reads": 71,
+      "row_writes": 44,
+      "requests": 992,
+      "truncated": false
+    },
+    {
+      "gpu": 3,
+      "sample_start": 6,
+      "sample_end": 8,
+      "local_row_reads": 9,
+      "remote_row_reads": 44,
+      "row_writes": 55,
+      "requests": 864,
+      "truncated": false
+    },
+    {
+      "gpu": 4,
+      "sample_start": 8,
+      "sample_end": 10,
+      "local_row_reads": 7,
+      "remote_row_reads": 73,
+      "row_writes": 55,
+      "requests": 1080,
+      "truncated": false
+    },
+    {
+      "gpu": 5,
+      "sample_start": 10,
+      "sample_end": 12,
+      "local_row_reads": 3,
+      "remote_row_reads": 38,
+      "row_writes": 52,
+      "requests": 744,
+      "truncated": false
+    },
+    {
+      "gpu": 6,
+      "sample_start": 12,
+      "sample_end": 14,
+      "local_row_reads": 5,
+      "remote_row_reads": 58,
+      "row_writes": 45,
+      "requests": 864,
+      "truncated": false
+    },
+    {
+      "gpu": 7,
+      "sample_start": 14,
+      "sample_end": 16,
+      "local_row_reads": 4,
+      "remote_row_reads": 34,
+      "row_writes": 62,
+      "requests": 800,
+      "truncated": false
+    }
+  ]
+}

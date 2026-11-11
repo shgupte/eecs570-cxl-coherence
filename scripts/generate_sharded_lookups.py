@@ -235,13 +235,49 @@ def lookups_from_batch(
     return lookups, ranges
 
 
-def write_traces(result: dict, output_dir: Path) -> None:
+def write_traces(result: dict, output_dir: Path, *, drain_ticks: int = 20_000_000) -> None:
+    """Write one CSV and one traffic-generator config per accelerator.
+
+    Accelerator 0 exits after every accelerator's last request, plus
+    ``drain_ticks``. The others idle until that exit. An accelerator with no
+    requests keeps a long idle and never exits on its own.
+    """
     output_dir.mkdir(parents=True, exist_ok=True)
+    last = int(result["last_tick"])
     for gpu, requests in enumerate(result["requests"]):
-        path = output_dir / f"accel{gpu}.csv"
-        with path.open("w") as stream:
+        csv_path = output_dir / f"accel{gpu}.csv"
+        with csv_path.open("w") as stream:
             for op, address, size, tick in requests:
                 stream.write(f"{op},{address},{size},{tick}\n")
+        cfg_path = output_dir / f"accel{gpu}.cfg"
+        if not requests:
+            cfg_path.write_text(
+                "STATE 0 10000000000000 IDLE\n"
+                "INIT 0\n"
+                "TRANSITION 0 0 1\n"
+            )
+            continue
+        own_last = int(requests[-1][3])
+        csv_ref = csv_path.resolve().as_posix()
+        if gpu == 0:
+            idle = max(1, last - own_last + drain_ticks)
+            cfg_path.write_text(
+                f"STATE 0 0 CSVTRACE {csv_ref} 0\n"
+                f"STATE 1 {idle} IDLE\n"
+                "STATE 2 1 EXIT\n"
+                "INIT 0\n"
+                "TRANSITION 0 1 1\n"
+                "TRANSITION 1 2 1\n"
+                "TRANSITION 2 2 1\n"
+            )
+        else:
+            cfg_path.write_text(
+                f"STATE 0 0 CSVTRACE {csv_ref} 0\n"
+                "STATE 1 10000000000000 IDLE\n"
+                "INIT 0\n"
+                "TRANSITION 0 1 1\n"
+                "TRANSITION 1 1 1\n"
+            )
 
 
 def parse_args() -> argparse.Namespace:

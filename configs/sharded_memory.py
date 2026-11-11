@@ -1,4 +1,11 @@
-"""One traffic generator connected to local DDR5 memory."""
+"""Eight accelerators, each with a 2 GB DDR5 shard.
+
+Set TRACE_DIR to a directory of accel0.cfg .. accel7.cfg produced by
+scripts/generate_sharded_lookups.py. Without it, accelerator 0 replays the
+two-read routing check and the others stay idle.
+"""
+
+import os
 
 import m5
 
@@ -55,14 +62,21 @@ for i in range(NUM_ACCELERATORS): #requests flow from the cpu side ports to the 
         system.local_xbars[i].mem_side_ports
     )
 
-system.generators = [ # the traffic gen acts like a synthetic generator
-    # only generator 1 actually sends traffic
+def _generator_config(index):
+    trace_dir = os.environ.get("TRACE_DIR", "")
+    if trace_dir:
+        path = os.path.join(trace_dir, f"accel{index}.cfg")
+        if os.path.isfile(path):
+            return path
+        return "configs/idle.cfg"
+    if index == 0:
+        return "configs/routing-smoke.cfg"
+    return "configs/idle.cfg"
+
+
+system.generators = [
     TrafficGen(
-        config_file=(
-            "configs/routing-smoke.cfg"
-            if i == 0
-            else "configs/idle.cfg"
-        ),
+        config_file=_generator_config(i),
         max_outstanding_reqs=32,
         progress_check="10ms",
     )

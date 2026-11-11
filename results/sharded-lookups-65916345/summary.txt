@@ -1,0 +1,46 @@
+Sharded-memory results (last complete statistics dump)
+Simulated duration: 0.025496 ms
+Simulator wall time: 0.050 s
+Duration includes scheduled gaps and idle states; it is not training time.
+
+Accelerator responses and request-response latency
+ ID    Reads   Writes   Avg read ns  Avg write ns  Retries  Suppressed
+  0      192      496       228.009        18.954    1,335           0
+  1      480      352       260.231        16.893    1,888           0
+  2      640      352       256.409        15.263    2,302           0
+  3      424      440       255.860        16.806    1,869           0
+  4      640      440       257.473        15.403    2,515           0
+  5      328      416       258.656        16.870    1,613           0
+  6      504      360       242.226        16.808    1,996           0
+  7      304      496       231.702        17.741    1,693           0
+
+Responded: 3,512 reads + 3,352 writes = 6,864 requests
+Generated in-range requests: 6,864; awaiting responses: 0
+Weighted mean read latency: 251.542 ns
+Weighted mean write latency: 16.933 ns
+Request retry notifications: 15,211; suppressed out-of-range requests: 0
+
+Memory-owner requests accepted (not response-completion counters)
+Owner    Reads   Writes
+    0      520      496
+    1      384      352
+    2      376      352
+    3      464      440
+    4      464      440
+    5      424      416
+    6      368      360
+    7      512      496
+
+Fabric traffic (requests and responses combined)
+Packet traversals: 6,272
+Data payload: 200,704 bytes
+A remote read normally counts as two packets: request + response.
+Payload excludes packet headers, encoding, and protocol overhead.
+
+Interpretation:
+- n/a latency means no responses of that type were observed.
+- Latency is reported by the requester across its modeled memory path.
+- Means combine local/remote accesses; they do not separate their latency.
+- Write responses acknowledge requests; they do not prove DRAM durability.
+- Balanced generated/responded counts do not prove the full trace replayed.
+- This model currently measures memory/communication, not GPU computation.
