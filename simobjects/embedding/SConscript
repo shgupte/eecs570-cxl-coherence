@@ -1,0 +1,4 @@
+Import("*")
+
+SimObject("EmbeddingEndpoint.py", sim_objects=["EmbeddingEndpoint"])
+Source("embedding_endpoint.cc")
