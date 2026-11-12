@@ -9,8 +9,10 @@ each owner that contributed, and the owner writes each distinct row once.
 Those gradient messages happen once per batch, not once per row.
 
 Addresses are packed into the owner's 2 GB shard. This does not start gem5,
-and it does not implement a real NCCL reduce-scatter. The pooled result and
-the gradient are single transfers of the right size.
+and it does not implement NCCL. Pass ``--collective`` to issue each exchange
+as an all-to-all on this crossbar: every accelerator injects that phase at
+the same tick, and the next phase waits until the switch and the busiest
+memory could have finished those packets.
 """
 
 from __future__ import annotations
@@ -26,6 +28,67 @@ SHARD_BYTES = 2 * 1024**3
 ROW_BYTES = 512
 LINE_BYTES = 64
 ID_BYTES = 8
+
+# Timing for the eight-shard machine in configs/sharded_memory.py.
+# One gem5 tick is 1 ps. The clock is 2.4 GHz, so one cycle is 417 ticks.
+# The switch moves 32 bytes per cycle. DDR5-4400's page is 1 KB and one
+# 64-byte burst is 3.632 ns. A closed-page access pays tRP + tRCD + tCL
+# on top of that burst. The isolated packet times are the paced gem5
+# measurements: a remote read at 142 ns and a local read at 66 ns.
+CYCLE_TICKS = 417
+FABRIC_BYTES_PER_CYCLE = 32
+PAGE_BYTES = 1024
+DRAM_LINE_TICKS = 3_632
+DRAM_ROW_MISS_TICKS = 14_545 + 14_545 + 14_545 + DRAM_LINE_TICKS
+REMOTE_PACKET_TICKS = 142_000
+LOCAL_PACKET_TICKS = 66_000
+# Id exchange, pooled results, and gradients. Lookups and row updates are local.
+EXCHANGE_PHASES = (0, 2, 3)
+
+
+def _dram_ticks(sizes: list[int]) -> int:
+    """Time for sequential packets, with a row miss at each new page."""
+    ticks = 0
+    filled = 0
+    for size in sizes:
+        if filled == 0 or filled + size > PAGE_BYTES:
+            ticks += DRAM_ROW_MISS_TICKS
+            filled = 0
+        else:
+            ticks += DRAM_LINE_TICKS
+        filled += size
+        if filled >= PAGE_BYTES:
+            filled = 0
+    return ticks
+
+
+def _phase_hold(phase: list[list[tuple[str, int, int]]], *, remote: bool, shard_bytes: int) -> int:
+    """Ticks to finish a phase after its first packet is issued.
+
+    Accelerators inject one packet per cycle. Remote packets also share the
+    32-byte switch and land in one destination's memory. The phase waits for
+    the slowest of those three, plus one measured packet latency so the last
+    response can return before the next phase starts.
+    """
+    packet_counts = []
+    by_dest: dict[int, list[int]] = {}
+    fabric_cycles = 0
+    for gpu, packets in enumerate(phase):
+        packet_counts.append(len(packets))
+        sizes = [size for _op, _addr, size in packets]
+        if remote:
+            for _op, addr, size in packets:
+                by_dest.setdefault(addr // shard_bytes, []).append(size)
+                fabric_cycles += (size + FABRIC_BYTES_PER_CYCLE - 1) // FABRIC_BYTES_PER_CYCLE
+        elif sizes:
+            by_dest[gpu] = sizes
+    if sum(packet_counts) == 0:
+        return 0
+    inject = max(packet_counts) * CYCLE_TICKS
+    dram = max(_dram_ticks(sizes) for sizes in by_dest.values())
+    fabric = fabric_cycles * CYCLE_TICKS if remote else 0
+    isolated = REMOTE_PACKET_TICKS if remote else LOCAL_PACKET_TICKS
+    return max(inject, dram, fabric) + isolated
 
 
 def even_shard_sizes(num_rows: int, num_gpus: int) -> list[int]:
@@ -108,12 +171,18 @@ def distribute_lookups(
     issue_gap: int = 1000,
     phase_gap: int = 100_000,
     max_reads_per_gpu: int | None = None,
+    collective: bool = False,
 ) -> dict:
     """Turn lookups into the production row-wise exchange.
 
     Each lookup is ``(sample_gpu, sample_id, table_id, row_id)``. One bag is
     the lookups that share sample, table, and order. Duplicate ids are kept.
     A gradient is sent once per bag per remote owner, after every lookup.
+
+    With ``collective``, every accelerator issues an exchange phase at one
+    tick, and the next phase starts only after that phase's estimated
+    completion plus ``phase_gap``. Without it, packets are spaced by
+    ``issue_gap`` and ``phase_gap`` is the only wait between phases.
     """
     if row_bytes % line_bytes or id_bytes < 1:
         raise ValueError("row size must be a multiple of the line size")
@@ -157,15 +226,15 @@ def distribute_lookups(
     dense: dict[tuple[int, int, int], int] = {}
     row_bytes_used = [0] * num_gpus
     for owner in range(num_gpus):
-        cursor = 0
+        slot = 0
         for table_id in sorted(per_table_max):
-            for index, row_id in enumerate(owned_rows.get((table_id, owner), [])):
-                dense[(table_id, owner, row_id)] = index
-                cursor += row_bytes
-        row_bytes_used[owner] = cursor
-        if cursor > shard_bytes:
+            for row_id in owned_rows.get((table_id, owner), []):
+                dense[(table_id, owner, row_id)] = slot
+                slot += 1
+        row_bytes_used[owner] = slot * row_bytes
+        if row_bytes_used[owner] > shard_bytes:
             raise ValueError(
-                f"accelerator {owner} needs {cursor} bytes, shard is {shard_bytes}"
+                f"accelerator {owner} needs {row_bytes_used[owner]} bytes, shard is {shard_bytes}"
             )
 
     mailbox = list(row_bytes_used)
@@ -228,14 +297,33 @@ def distribute_lookups(
     requests: list[list[tuple[str, int, int, int]]] = [[] for _ in range(num_gpus)]
     cursors = [0] * num_gpus
     phase_starts = []
-    for index, phase in enumerate(phases):
-        start = 0 if index == 0 else max(cursors) + phase_gap
-        phase_starts.append(start)
-        cursors = [start] * num_gpus
-        for gpu in range(num_gpus):
-            for op, addr, size in phase[gpu]:
-                requests[gpu].append((op, addr, size, cursors[gpu]))
-                cursors[gpu] += issue_gap
+    if collective:
+        # gem5 treats a blocked send at tick 0 as "no retry timestamp" and
+        # aborts. The first exchange has to start on a later tick.
+        clock = 1
+        for index, phase in enumerate(phases):
+            if index:
+                clock += phase_gap
+            phase_starts.append(clock)
+            remote = index in EXCHANGE_PHASES
+            for gpu in range(num_gpus):
+                tick = clock
+                for op, addr, size in phase[gpu]:
+                    requests[gpu].append((op, addr, size, tick))
+                    if not remote:
+                        tick += CYCLE_TICKS
+            clock += _phase_hold(phase, remote=remote, shard_bytes=shard_bytes)
+        last_tick = clock
+    else:
+        for index, phase in enumerate(phases):
+            start = 0 if index == 0 else max(cursors) + phase_gap
+            phase_starts.append(start)
+            cursors = [start] * num_gpus
+            for gpu in range(num_gpus):
+                for op, addr, size in phase[gpu]:
+                    requests[gpu].append((op, addr, size, cursors[gpu]))
+                    cursors[gpu] += issue_gap
+        last_tick = max(cursors) if any(cursors) else 0
     writes = [0] * num_gpus
     for owner in range(num_gpus):
         writes[owner] = sum(len(owned_rows.get((table_id, owner), [])) for table_id in per_table_max)
@@ -248,9 +336,10 @@ def distribute_lookups(
         "row_writes": writes,
         "truncated": truncated,
         "phase_starts": phase_starts,
+        "schedule": "collective" if collective else "paced",
         "gradient_start_tick": phase_starts[3],
         "update_start_tick": phase_starts[4],
-        "last_tick": max(cursors) if any(cursors) else 0,
+        "last_tick": last_tick,
         "table_rows": {table_id: max_row + 1 for table_id, max_row in per_table_max.items()},
     }
 
@@ -341,6 +430,21 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-reads-per-gpu", type=int)
     parser.add_argument("--issue-gap", type=int, default=1000)
     parser.add_argument("--phase-gap", type=int, default=100_000)
+    parser.add_argument(
+        "--drain-ticks",
+        type=int,
+        default=20_000_000,
+        help="Idle ticks after the last phase before accelerator 0 exits.",
+    )
+    parser.add_argument(
+        "--collective",
+        action="store_true",
+        help=(
+            "Issue each id, result, and gradient exchange at one shared tick, "
+            "and start the next phase only after the switch and the busiest "
+            "memory could have finished it. Ignores --issue-gap."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -368,16 +472,20 @@ def main() -> None:
         issue_gap=args.issue_gap,
         phase_gap=args.phase_gap,
         max_reads_per_gpu=args.max_reads_per_gpu,
+        collective=args.collective,
     )
-    write_traces(result, args.output_dir)
+    write_traces(result, args.output_dir, drain_ticks=args.drain_ticks)
     manifest = {
         "dataset": str(args.dataset),
         "model": "sharded-pooled-exchange",
+        "schedule": result["schedule"],
         "note": (
             "Ids are sent to the row owner. The owner reads locally and returns "
             "one pooled result per bag. After all lookups, one pooled gradient "
             "goes back to each contributing owner, then the owner writes each "
-            "distinct row once. Addresses are packed. This is not an NCCL collective."
+            "distinct row once. Addresses are packed. The collective schedule "
+            "injects each exchange at one tick and waits for the estimated "
+            "drain before the next phase. It is not an NCCL reduce-scatter."
         ),
         "sample_start": args.sample_start,
         "samples": args.samples,

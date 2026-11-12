@@ -1,0 +1,126 @@
+{
+  "dataset": "/scratch/eecs570f26s001_class_root/eecs570f26s001_class/shgupte/dlrm_datasets/embedding_bag/2021/fbgemm_t856_bs65536_0.pt.gz",
+  "model": "sharded-pooled-exchange",
+  "schedule": "collective",
+  "note": "Ids are sent to the row owner. The owner reads locally and returns one pooled result per bag. After all lookups, one pooled gradient goes back to each contributing owner, then the owner writes each distinct row once. Addresses are packed. The collective schedule injects each exchange at one tick and waits for the estimated drain before the next phase. It is not an NCCL reduce-scatter.",
+  "sample_start": 0,
+  "samples": 128,
+  "tables": [
+    0,
+    1,
+    2,
+    3
+  ],
+  "num_gpus": 8,
+  "shard_bytes": 2147483648,
+  "row_bytes": 512,
+  "line_bytes": 64,
+  "issue_gap": 1000,
+  "phase_gap": 0,
+  "table_rows": {
+    "0": 8015964,
+    "2": 9995880,
+    "3": 6134751
+  },
+  "gradient_start_tick": 182494639,
+  "update_start_tick": 198382559,
+  "last_tick": 309454536,
+  "accelerators": [
+    {
+      "gpu": 0,
+      "sample_start": 0,
+      "sample_end": 16,
+      "id_sends": 2851,
+      "local_row_reads": 2917,
+      "pooled_results": 294,
+      "gradients": 297,
+      "row_writes": 2043,
+      "requests": 47259,
+      "truncated": false
+    },
+    {
+      "gpu": 1,
+      "sample_start": 16,
+      "sample_end": 32,
+      "id_sends": 2487,
+      "local_row_reads": 2924,
+      "pooled_results": 294,
+      "gradients": 290,
+      "row_writes": 2100,
+      "requests": 47351,
+      "truncated": false
+    },
+    {
+      "gpu": 2,
+      "sample_start": 32,
+      "sample_end": 48,
+      "id_sends": 2651,
+      "local_row_reads": 2853,
+      "pooled_results": 294,
+      "gradients": 298,
+      "row_writes": 2083,
+      "requests": 46875,
+      "truncated": false
+    },
+    {
+      "gpu": 3,
+      "sample_start": 48,
+      "sample_end": 64,
+      "id_sends": 2370,
+      "local_row_reads": 2909,
+      "pooled_results": 301,
+      "gradients": 278,
+      "row_writes": 2040,
+      "requests": 46594,
+      "truncated": false
+    },
+    {
+      "gpu": 4,
+      "sample_start": 64,
+      "sample_end": 80,
+      "id_sends": 2370,
+      "local_row_reads": 2959,
+      "pooled_results": 291,
+      "gradients": 310,
+      "row_writes": 2134,
+      "requests": 47922,
+      "truncated": false
+    },
+    {
+      "gpu": 5,
+      "sample_start": 80,
+      "sample_end": 96,
+      "id_sends": 2489,
+      "local_row_reads": 3057,
+      "pooled_results": 301,
+      "gradients": 278,
+      "row_writes": 2182,
+      "requests": 49033,
+      "truncated": false
+    },
+    {
+      "gpu": 6,
+      "sample_start": 96,
+      "sample_end": 112,
+      "id_sends": 2826,
+      "local_row_reads": 2909,
+      "pooled_results": 294,
+      "gradients": 301,
+      "row_writes": 2118,
+      "requests": 47802,
+      "truncated": false
+    },
+    {
+      "gpu": 7,
+      "sample_start": 112,
+      "sample_end": 128,
+      "id_sends": 2607,
+      "local_row_reads": 3019,
+      "pooled_results": 291,
+      "gradients": 308,
+      "row_writes": 2124,
+      "requests": 48543,
+      "truncated": false
+    }
+  ]
+}
