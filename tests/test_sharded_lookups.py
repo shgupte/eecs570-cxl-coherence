@@ -20,14 +20,16 @@ class ShardedLookupTests(unittest.TestCase):
         ranges = owner_ranges(10, 4)
         self.assertEqual([owner_of(row, ranges) for row in range(10)], [0, 0, 0, 1, 1, 1, 2, 2, 2, 3])
 
-    def test_remote_read_uses_owner_shard_and_owner_writes_once(self):
-        # Two GPUs. With ids 0 and 5, the span is 6 rows: GPU 0 owns 0-2, GPU 1 owns 3-5.
+    def test_remote_bag_sends_ids_one_result_and_one_gradient(self):
+        # GPU 0 owns rows 0-2, GPU 1 owns rows 3-5. One bag on GPU 0 contains
+        # a local row and two copies of a remote row. One bag on GPU 1 contains
+        # two copies of GPU 0's row.
         lookups = [
-            (0, 0, 0),
-            (0, 0, 5),
-            (0, 0, 5),
-            (1, 0, 0),
-            (1, 0, 0),
+            (0, 0, 0, 0),
+            (0, 0, 0, 5),
+            (0, 0, 0, 5),
+            (1, 1, 0, 0),
+            (1, 1, 0, 0),
         ]
         result = distribute_lookups(
             lookups,
@@ -35,22 +37,28 @@ class ShardedLookupTests(unittest.TestCase):
             shard_bytes=4096,
             row_bytes=64,
             line_bytes=64,
+            id_bytes=8,
             issue_gap=10,
             phase_gap=100,
         )
-        self.assertEqual(result["local_row_reads"], [1, 0])
-        self.assertEqual(result["remote_row_reads"], [2, 2])
+        self.assertEqual(result["id_sends"], [2, 2])
+        self.assertEqual(result["pooled_results"], [1, 1])
+        self.assertEqual(result["gradients"], [1, 1])
         self.assertEqual(result["row_writes"], [1, 1])
-        reads = [item for item in result["requests"][0] if item[0] == "r"]
-        self.assertEqual(len(reads), 3)
-        self.assertLess(reads[0][1], 4096)
-        self.assertGreaterEqual(reads[1][1], 4096)
-        self.assertEqual(reads[1][1], reads[2][1])
-        owner_writes = [item for item in result["requests"][1] if item[0] == "w"]
-        self.assertEqual(len(owner_writes), 1)
-        self.assertGreaterEqual(owner_writes[0][1], 4096)
-        self.assertGreaterEqual(owner_writes[0][3], result["write_start_tick"])
-        self.assertGreater(result["write_start_tick"], result["read_done_tick"])
+        self.assertEqual(result["local_row_reads"], [3, 2])
+        gpu0 = result["requests"][0]
+        remote_reads = [item for item in gpu0 if item[0] == "r" and item[1] >= 4096]
+        self.assertEqual(remote_reads, [])
+        id_writes = [item for item in gpu0 if item[0] == "w" and item[1] >= 4096 and item[2] == 8]
+        self.assertEqual(len(id_writes), 2)
+        gradients = [
+            item for item in gpu0
+            if item[0] == "w" and item[2] == 64 and item[1] >= 4096
+            and item[3] >= result["gradient_start_tick"]
+        ]
+        self.assertEqual(len(gradients), 1)
+        self.assertGreater(result["gradient_start_tick"], result["phase_starts"][2])
+        self.assertGreater(result["update_start_tick"], result["gradient_start_tick"])
 
 
 if __name__ == "__main__":

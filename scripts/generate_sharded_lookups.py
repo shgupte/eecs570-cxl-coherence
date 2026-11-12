@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
-"""Distribute one slice of Meta embedding lookups across sharded accelerators.
+"""Distribute one slice of Meta embedding lookups as a row-wise collective.
 
-Each sample goes to one accelerator. Each row is owned by one accelerator,
-using contiguous blocks of the observed id span. A lookup becomes 64-byte
-reads of a 512-byte row in the owner's 2 GB shard. The owner later writes
-that row once. Addresses are packed; raw row ids do not fit in a shard.
+Each sample goes to one accelerator. Each row is owned by one accelerator.
+The sample's accelerator sends the ids to the owner. The owner reads its own
+rows locally and sends back one 512-byte pooled result per bag. After every
+lookup in the slice, the sample's accelerator sends one 512-byte gradient to
+each owner that contributed, and the owner writes each distinct row once.
+Those gradient messages happen once per batch, not once per row.
 
-This is the memory-read interface for configs/sharded_memory.py. It does not
-send pooled all-to-all messages, and it does not start gem5.
+Addresses are packed into the owner's 2 GB shard. This does not start gem5,
+and it does not implement a real NCCL reduce-scatter. The pooled result and
+the gradient are single transfers of the right size.
 """
 
 from __future__ import annotations
@@ -22,6 +25,7 @@ NUM_GPUS = 8
 SHARD_BYTES = 2 * 1024**3
 ROW_BYTES = 512
 LINE_BYTES = 64
+ID_BYTES = 8
 
 
 def even_shard_sizes(num_rows: int, num_gpus: int) -> list[int]:
@@ -94,113 +98,159 @@ def bag_rows(indices, offsets, batch_size: int, table_id: int, sample_id: int) -
 
 
 def distribute_lookups(
-    lookups: list[tuple[int, int, int]],
+    lookups: list[tuple[int, int, int, int]],
     *,
     num_gpus: int = NUM_GPUS,
     shard_bytes: int = SHARD_BYTES,
     row_bytes: int = ROW_BYTES,
     line_bytes: int = LINE_BYTES,
+    id_bytes: int = ID_BYTES,
     issue_gap: int = 1000,
     phase_gap: int = 100_000,
     max_reads_per_gpu: int | None = None,
 ) -> dict:
-    """Turn (sample_gpu, table_id, row_id) lookups into per-GPU memory requests.
+    """Turn lookups into the production row-wise exchange.
 
-    Lookups stay in the order given. Duplicate row ids are separate reads.
-    ``max_reads_per_gpu`` caps row reads, not cache lines.
+    Each lookup is ``(sample_gpu, sample_id, table_id, row_id)``. One bag is
+    the lookups that share sample, table, and order. Duplicate ids are kept.
+    A gradient is sent once per bag per remote owner, after every lookup.
     """
-    if row_bytes % line_bytes:
+    if row_bytes % line_bytes or id_bytes < 1:
         raise ValueError("row size must be a multiple of the line size")
     per_table_max: dict[int, int] = {}
-    for _gpu, table_id, row_id in lookups:
+    for sample_gpu, _sample_id, table_id, row_id in lookups:
         if row_id < 0:
             raise ValueError("row id must be non-negative")
+        if not 0 <= sample_gpu < num_gpus:
+            raise ValueError(f"sample gpu {sample_gpu} is outside 0..{num_gpus - 1}")
         per_table_max[table_id] = max(per_table_max.get(table_id, -1), row_id)
     ranges = {
         table_id: owner_ranges(max_row + 1, num_gpus)
         for table_id, max_row in per_table_max.items()
     }
 
-    owned_rows: dict[tuple[int, int], list[int]] = {}
-    seen_owned: set[tuple[int, int, int]] = set()
-    assigned: list[tuple[int, int, int, int]] = []
-    read_counts = [0] * num_gpus
+    bags: list[tuple[tuple[int, int, int], list[tuple[int, int]]]] = []
+    bag_index: dict[tuple[int, int, int], int] = {}
+    kept = [0] * num_gpus
     truncated = [False] * num_gpus
-    for sample_gpu, table_id, row_id in lookups:
-        if not 0 <= sample_gpu < num_gpus:
-            raise ValueError(f"sample gpu {sample_gpu} is outside 0..{num_gpus - 1}")
-        if max_reads_per_gpu is not None and read_counts[sample_gpu] >= max_reads_per_gpu:
+    for sample_gpu, sample_id, table_id, row_id in lookups:
+        if max_reads_per_gpu is not None and kept[sample_gpu] >= max_reads_per_gpu:
             truncated[sample_gpu] = True
             continue
         owner = owner_of(row_id, ranges[table_id])
-        key = (table_id, owner, row_id)
-        if key not in seen_owned:
-            seen_owned.add(key)
-            owned_rows.setdefault((table_id, owner), []).append(row_id)
-        assigned.append((sample_gpu, table_id, row_id, owner))
-        read_counts[sample_gpu] += 1
+        key = (sample_gpu, sample_id, table_id)
+        if key not in bag_index:
+            bag_index[key] = len(bags)
+            bags.append((key, []))
+        bags[bag_index[key]][1].append((row_id, owner))
+        kept[sample_gpu] += 1
 
-    table_base: dict[tuple[int, int], int] = {}
+    owned_rows: dict[tuple[int, int], list[int]] = {}
+    seen_owned: set[tuple[int, int, int]] = set()
+    for (_sample_gpu, _sample_id, table_id), rows in bags:
+        for row_id, owner in rows:
+            key = (table_id, owner, row_id)
+            if key not in seen_owned:
+                seen_owned.add(key)
+                owned_rows.setdefault((table_id, owner), []).append(row_id)
+
     dense: dict[tuple[int, int, int], int] = {}
+    row_bytes_used = [0] * num_gpus
     for owner in range(num_gpus):
         cursor = 0
         for table_id in sorted(per_table_max):
-            rows = owned_rows.get((table_id, owner), [])
-            table_base[(table_id, owner)] = cursor
-            for index, row_id in enumerate(rows):
+            for index, row_id in enumerate(owned_rows.get((table_id, owner), [])):
                 dense[(table_id, owner, row_id)] = index
-            cursor += len(rows) * row_bytes
+                cursor += row_bytes
+        row_bytes_used[owner] = cursor
         if cursor > shard_bytes:
             raise ValueError(
                 f"accelerator {owner} needs {cursor} bytes, shard is {shard_bytes}"
             )
 
-    def address(table_id: int, owner: int, row_id: int) -> int:
-        packed = dense[(table_id, owner, row_id)]
-        return owner * shard_bytes + table_base[(table_id, owner)] + packed * row_bytes
+    mailbox = list(row_bytes_used)
 
-    requests: list[list[tuple[str, int, int, int]]] = [[] for _ in range(num_gpus)]
-    ticks = [0] * num_gpus
-    local_reads = [0] * num_gpus
-    remote_reads = [0] * num_gpus
+    def row_address(table_id: int, owner: int, row_id: int) -> int:
+        return owner * shard_bytes + dense[(table_id, owner, row_id)] * row_bytes
 
-    def emit(gpu: int, op: str, row_address: int) -> None:
-        for offset in range(0, row_bytes, line_bytes):
-            requests[gpu].append((op, row_address + offset, line_bytes, ticks[gpu]))
-            ticks[gpu] += issue_gap
+    def alloc(shard: int, nbytes: int) -> int:
+        start = mailbox[shard]
+        aligned = (start + line_bytes - 1) // line_bytes * line_bytes
+        mailbox[shard] = aligned + nbytes
+        if mailbox[shard] > shard_bytes:
+            raise ValueError(f"accelerator {shard} mailbox exceeds the shard")
+        return shard * shard_bytes + aligned
 
-    for sample_gpu, table_id, row_id, owner in assigned:
-        emit(sample_gpu, "r", address(table_id, owner, row_id))
-        if owner == sample_gpu:
-            local_reads[sample_gpu] += 1
-        else:
-            remote_reads[sample_gpu] += 1
+    id_sends: list[tuple[int, int, int, int]] = []
+    local_reads: list[tuple[int, int, int]] = []
+    results: list[tuple[int, int, int]] = []
+    gradients: list[tuple[int, int, int]] = []
+    for (sample_gpu, _sample_id, table_id), rows in bags:
+        by_owner: dict[int, list[int]] = {}
+        for row_id, owner in rows:
+            by_owner.setdefault(owner, []).append(row_id)
+        for owner, row_ids in by_owner.items():
+            for row_id in row_ids:
+                local_reads.append((owner, table_id, row_id))
+            if owner == sample_gpu:
+                continue
+            slot = alloc(owner, id_bytes * len(row_ids))
+            for index in range(len(row_ids)):
+                id_sends.append((sample_gpu, owner, slot + index * id_bytes, id_bytes))
+            results.append((owner, sample_gpu, alloc(sample_gpu, row_bytes)))
+            gradients.append((sample_gpu, owner, alloc(owner, row_bytes)))
 
-    read_done = max(ticks) if any(ticks) else 0
-    write_at = read_done + phase_gap
-    writes = [0] * num_gpus
-    for owner in range(num_gpus):
-        owned = [
-            (table_id, row_id)
+    def burst(events: list[tuple[int, str, int, int]]) -> list[list[tuple[str, int, int]]]:
+        per_gpu: list[list[tuple[str, int, int]]] = [[] for _ in range(num_gpus)]
+        for gpu, op, addr, size in events:
+            if size == row_bytes and line_bytes < row_bytes:
+                for offset in range(0, row_bytes, line_bytes):
+                    per_gpu[gpu].append((op, addr + offset, line_bytes))
+            else:
+                per_gpu[gpu].append((op, addr, size))
+        return per_gpu
+
+    phases = [
+        burst([(gpu, "w", addr, size) for gpu, _owner, addr, size in id_sends]),
+        burst([
+            (owner, "r", row_address(table_id, owner, row_id), row_bytes)
+            for owner, table_id, row_id in local_reads
+        ]),
+        burst([(owner, "w", addr, row_bytes) for owner, _dest, addr in results]),
+        burst([(gpu, "w", addr, row_bytes) for gpu, _owner, addr in gradients]),
+        burst([
+            (owner, "w", row_address(table_id, owner, row_id), row_bytes)
+            for owner in range(num_gpus)
             for table_id in sorted(per_table_max)
             for row_id in owned_rows.get((table_id, owner), [])
-        ]
-        if not owned:
-            continue
-        ticks[owner] = write_at
-        for table_id, row_id in owned:
-            emit(owner, "w", address(table_id, owner, row_id))
-            writes[owner] += 1
-
+        ]),
+    ]
+    requests: list[list[tuple[str, int, int, int]]] = [[] for _ in range(num_gpus)]
+    cursors = [0] * num_gpus
+    phase_starts = []
+    for index, phase in enumerate(phases):
+        start = 0 if index == 0 else max(cursors) + phase_gap
+        phase_starts.append(start)
+        cursors = [start] * num_gpus
+        for gpu in range(num_gpus):
+            for op, addr, size in phase[gpu]:
+                requests[gpu].append((op, addr, size, cursors[gpu]))
+                cursors[gpu] += issue_gap
+    writes = [0] * num_gpus
+    for owner in range(num_gpus):
+        writes[owner] = sum(len(owned_rows.get((table_id, owner), [])) for table_id in per_table_max)
     return {
         "requests": requests,
-        "local_row_reads": local_reads,
-        "remote_row_reads": remote_reads,
+        "id_sends": [sum(1 for gpu, _owner, _addr, _size in id_sends if gpu == index) for index in range(num_gpus)],
+        "local_row_reads": [sum(1 for owner, _table, _row in local_reads if owner == index) for index in range(num_gpus)],
+        "pooled_results": [sum(1 for owner, _dest, _addr in results if owner == index) for index in range(num_gpus)],
+        "gradients": [sum(1 for gpu, _owner, _addr in gradients if gpu == index) for index in range(num_gpus)],
         "row_writes": writes,
         "truncated": truncated,
-        "read_done_tick": read_done,
-        "write_start_tick": write_at if any(writes) else read_done,
-        "last_tick": max(ticks) if any(ticks) else 0,
+        "phase_starts": phase_starts,
+        "gradient_start_tick": phase_starts[3],
+        "update_start_tick": phase_starts[4],
+        "last_tick": max(cursors) if any(cursors) else 0,
         "table_rows": {table_id: max_row + 1 for table_id, max_row in per_table_max.items()},
     }
 
@@ -231,7 +281,7 @@ def lookups_from_batch(
         for sample_id in range(sample_start, sample_start + sample_count):
             rows = bag_rows(indices, offsets, batch_size, table_id, sample_id)
             gpu = sample_gpu(sample_id, ranges)
-            lookups.extend((gpu, table_id, row_id) for row_id in rows)
+            lookups.extend((gpu, sample_id, table_id, row_id) for row_id in rows)
     return lookups, ranges
 
 
@@ -322,11 +372,12 @@ def main() -> None:
     write_traces(result, args.output_dir)
     manifest = {
         "dataset": str(args.dataset),
-        "model": "sharded-memory-reads",
+        "model": "sharded-pooled-exchange",
         "note": (
-            "Each accelerator reads the rows in its samples from the owning "
-            "shard. The owner writes each distinct row once after every read. "
-            "Addresses are packed into the 2 GB shard. This is not pooled all-to-all."
+            "Ids are sent to the row owner. The owner reads locally and returns "
+            "one pooled result per bag. After all lookups, one pooled gradient "
+            "goes back to each contributing owner, then the owner writes each "
+            "distinct row once. Addresses are packed. This is not an NCCL collective."
         ),
         "sample_start": args.sample_start,
         "samples": args.samples,
@@ -338,16 +389,18 @@ def main() -> None:
         "issue_gap": args.issue_gap,
         "phase_gap": args.phase_gap,
         "table_rows": {str(table_id): rows for table_id, rows in result["table_rows"].items()},
-        "read_done_tick": result["read_done_tick"],
-        "write_start_tick": result["write_start_tick"],
+        "gradient_start_tick": result["gradient_start_tick"],
+        "update_start_tick": result["update_start_tick"],
         "last_tick": result["last_tick"],
         "accelerators": [
             {
                 "gpu": gpu,
                 "sample_start": ranges[gpu][0],
                 "sample_end": ranges[gpu][1],
+                "id_sends": result["id_sends"][gpu],
                 "local_row_reads": result["local_row_reads"][gpu],
-                "remote_row_reads": result["remote_row_reads"][gpu],
+                "pooled_results": result["pooled_results"][gpu],
+                "gradients": result["gradients"][gpu],
                 "row_writes": result["row_writes"][gpu],
                 "requests": len(result["requests"][gpu]),
                 "truncated": result["truncated"][gpu],
