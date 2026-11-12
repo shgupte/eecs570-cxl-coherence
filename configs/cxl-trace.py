@@ -28,6 +28,23 @@ def parse_args() -> argparse.Namespace:
         help="TrafficGen config for one accelerator. Repeat for more devices.",
     )
     parser.add_argument("--max-outstanding", type=int, default=32)
+    parser.add_argument("--l1d-size", default="128KiB")
+    parser.add_argument("--l2-size", default="512KiB")
+    parser.add_argument(
+        "--l2-latency-cycles",
+        type=int,
+        default=256,
+        help="Cycles on each L2 request/response/to-L1 hop. SimCXL uses "
+        "this hop for the CXL link; 256 is the original value.",
+    )
+    parser.add_argument(
+        "--cxl-extra-latency-ns",
+        type=int,
+        default=0,
+        help="Emulated CXL.mem link+controller latency added to every "
+        "memory-controller access (embeddings live in this memory). "
+        "0 keeps the original host-DDR5 baseline.",
+    )
     args = parser.parse_args()
     for path in (args.cpu_config, *args.device_config):
         if not path.is_file():
@@ -40,18 +57,23 @@ def main() -> None:
     requires(coherence_protocol_required=CoherenceProtocol.CXL_MESI_TWO_LEVEL)
 
     cache_hierarchy = CXLMESITwoLevelCacheHierarchy(
-        l1d_size="128KiB",
+        l1d_size=args.l1d_size,
         l1d_assoc=8,
         l1i_size="32KiB",
         l1i_assoc=8,
-        l2_size="512KiB",
+        l2_size=args.l2_size,
         l2_assoc=16,
         num_l2_banks=1,
+        l2_latency=args.l2_latency_cycles,
     )
+    memory = DIMM_DDR5_4400(size="3GiB")
+    if args.cxl_extra_latency_ns:
+        for ctrl in memory.get_memory_controllers():
+            ctrl.static_frontend_latency = f"{10 + args.cxl_extra_latency_ns}ns"
     board = TestBoard(
         clk_freq="2.4GHz",
         generator=TrafficGenerator([str(args.cpu_config.resolve())]),
-        memory=DIMM_DDR5_4400(size="3GiB"),
+        memory=memory,
         cache_hierarchy=cache_hierarchy,
     )
     generators = []
