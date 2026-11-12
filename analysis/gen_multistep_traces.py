@@ -20,6 +20,15 @@ barrier release ticks give real phase and step times.
                  writes), so no line is ever touched by two caches. Same
                  request counts and order. shared minus sharded is the
                  whole coherence cost.
+--mode push    : selective update-push emulation. After the write phase,
+                 every reader re-reads the rows it holds (rows it has read in
+                 an earlier step); the invalidate+refetch stands in for the
+                 owner pushing the new value. The next read phase then hits.
+--stale S      : the owner writes (and pushes) only every S steps; readers
+                 keep reading their bounded-stale copies in between.
+Every step has three phases (read, write, push) and three barriers, so
+barrier 3s ends the read phase of step s (the critical path), 3s+1 the write
+phase and 3s+2 the push phase, in every mode.
 --no-barriers  : legacy open-loop timing (v1 behaviour) for comparison.
 """
 import argparse
@@ -39,8 +48,9 @@ def main():
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--rows", type=int, default=1024)
     ap.add_argument("--steps", type=int, default=16)
-    ap.add_argument("--mode", choices=["shared", "sharded"], default="shared")
+    ap.add_argument("--mode", choices=["shared", "sharded", "push"], default="shared")
     ap.add_argument("--no-barriers", action="store_true")
+    ap.add_argument("--stale", type=int, default=1)
     a = ap.parse_args()
     h = np.load(a.hot)
     sm = h["steps_mask"][: a.steps]
@@ -66,6 +76,7 @@ def main():
         bid += 1
         return t + 1
 
+    held = {0: np.zeros(len(keep), bool), 1: np.zeros(len(keep), bool)}
     for s in range(sm.shape[0]):
         r0 = np.flatnonzero(sm[s] & 1)
         r1 = np.flatnonzero(sm[s] & 2)
@@ -77,7 +88,10 @@ def main():
                 last = max(last, t + 1 + (len(ls) - 1) * ISSUE_GAP)
         n = max(len(r0), len(r1)) * (ROW // LINE)
         t = barrier(last + 1, n, DRAIN_PER_LINE)
-        touched = np.union1d(r0, r1)
+        held[0][r0] = True
+        held[1][r1] = True
+        update = (s + 1) % a.stale == 0
+        touched = np.union1d(r0, r1) if update else np.array([], dtype=np.int64)
         wn = {}
         last = t
         for g in gens:
@@ -88,13 +102,24 @@ def main():
                 last = max(last, t + 1 + (len(ls) - 1) * ISSUE_GAP)
             wn[g] = len(rows)
         t = barrier(last + 1, len(touched) * (ROW // LINE), DRAIN_PER_LINE // 4)
+        last = t
+        npush = 0
+        if a.mode == "push" and update:
+            for g in (0, 1):
+                rows = np.flatnonzero(held[g])
+                ls = lines_of(rows, g)
+                reqs[g] += [("r", int(x), t + 1 + i * ISSUE_GAP) for i, x in enumerate(ls)]
+                if len(ls):
+                    last = max(last, t + 1 + (len(ls) - 1) * ISSUE_GAP)
+                npush += len(rows)
+        t = barrier(last + 1, npush * (ROW // LINE), DRAIN_PER_LINE)
         stats.append((s, len(r0), len(r1), len(np.intersect1d(r0, r1)), wn[0], wn[1], wn[2]))
     a.out.mkdir(parents=True, exist_ok=True)
     for g, name in ((0, "accel0"), (1, "accel1"), (2, "owner")):
-        with open(a.out / f"{a.mode}-{name}.csv", "w") as f:
+        with open(a.out / f"{a.mode}{'' if a.stale == 1 else f'-s{a.stale}'}-{name}.csv", "w") as f:
             for op, x, tk in sorted(reqs[g], key=lambda q: q[2]):
                 f.write(f"{op},{x},{LINE if op != 'b' else 0},{tk}\n")
-    with open(a.out / f"{a.mode}-steps.csv", "w") as f:
+    with open(a.out / f"{a.mode}{'' if a.stale == 1 else f'-s{a.stale}'}-steps.csv", "w") as f:
         f.write("step,rows_gpu0,rows_gpu1,rows_both,writes_by_gpu0,writes_by_gpu1,writes_by_other_owner\n")
         for r in stats:
             f.write(",".join(map(str, r)) + "\n")
