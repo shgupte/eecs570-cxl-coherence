@@ -109,3 +109,29 @@ reuse), `selective_model.py` (idealized byte model, `results_selective_model_cri
 Charge the flush cost in swflush; 8 reader GPUs; asynchronous updates (no
 barrier between write and next read), the one regime where hardware
 coherence should have an advantage.
+
+## 8-GPU validation matrix (`gen_ngpu_traces.py`, `run_ngpu_matrix.sh`)
+8 GPUs, Criteo masks, 5 modes (`mesi`, `uncached`, `swflush`, `swinv` =
+software selective invalidation, `update` = ideal write-update/push), swept
+over write interval k, write fraction p, link bandwidth, hop latency, MLP,
+hot-set size, batch window and GPU count. Results:
+`results_gem5_ngpu_matrix.csv` (`summarize_ngpu.py`). Step time µs (best in bold):
+
+| regime | MESI | swflush | swinv | uncached | update |
+|---|---|---|---|---|---|
+| k=1 base | 50.8 | 46.0 | 46.9 | **38.9** | 137 |
+| k=4 base | 18.8 | **17.5** | 17.7 | 34.6 | 40.5 |
+| k=1 p=0.1 (read-mostly) | **9.2** | 34.6 | 10.1 | 38.9 | 17.8 |
+| k=4 p=0.1 | **8.3** | 14.8 | 8.6 | 34.6 | 9.8 |
+| k=4 bw64 | **15.5** | 16.9 | 17.1 | 33.6 | 17.2 |
+| k=4 hop 512 | **25.1** | 25.8 | 26.2 | 61.1 | 40.7 |
+| k=4, 2 GPUs | **18.6** | 23.2 | 23.4 | 35.0 | 13.4* |
+| k=4, 4 GPUs | **18.9** | 19.3 | 19.5 | 34.5 | 19.9 |
+
+*update wins with 2 GPUs (only one holder to push to).
+MESI wins where updates are rare (p ≤ 0.25), bandwidth is ample, or few GPUs
+share; it loses at 8 GPUs with frequent writes and on a constrained pool port.
+Every MESI win comes from the software modes' publish (sync) phase; read
+phases are within ~3%. Software sync is overcharged here (RFO + write-back per
+line), so the MESI wins are upper bounds. Net: **MESI is within ±10% of the
+best software scheme almost everywhere, not uniformly worse.**
