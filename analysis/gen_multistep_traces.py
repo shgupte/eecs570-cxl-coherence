@@ -29,6 +29,13 @@ barrier release ticks give real phase and step times.
                  (g, s) of the row, so no line is ever reused from a cache
                  and no coherence message is ever sent: each read and write
                  crosses CXL to pooled memory every step.
+--mode swflush : software-managed caching, no hardware coherence. GPUs cache
+                 pooled rows freely; at every write boundary (every S steps)
+                 software invalidates everything it cached. Emulated by giving
+                 each write epoch (s // S) its own alias, cycling every
+                 --alias epochs: within an epoch repeated reads hit the L1,
+                 the first read after a boundary misses. The flush
+                 instructions themselves are not charged.
 --stale S      : the owner writes (and pushes) only every S steps; readers
                  keep reading their bounded-stale copies in between.
 Every step has three phases (read, write, push) and three barriers, so
@@ -53,9 +60,12 @@ def main():
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--rows", type=int, default=1024)
     ap.add_argument("--steps", type=int, default=16)
-    ap.add_argument("--mode", choices=["shared", "sharded", "push", "uncached"], default="shared")
+    ap.add_argument("--mode", choices=["shared", "sharded", "push", "uncached", "swflush"], default="shared")
     ap.add_argument("--no-barriers", action="store_true")
     ap.add_argument("--stale", type=int, default=1)
+    ap.add_argument("--warm", action="store_true",
+                    help="uncached/swflush: before step 0 the owner reads every alias of every region once "
+                         "(3 extra barriers = step -1), so later L1 misses hit the shared L2 like MESI does")
     ap.add_argument("--alias", type=int, default=1000, help="uncached: aliases cycle every N steps (4 lets L2 hit, L1 miss)")
     a = ap.parse_args()
     h = np.load(a.hot)
@@ -72,11 +82,12 @@ def main():
 
     STEP_ALIAS = 8 * 1024 * 1024
     cur = {"s": 0}
-    if a.mode == "uncached":
+    if a.mode in ("uncached", "swflush"):
         region = {g: g * REGION for g in gens}
 
     def lines_of(rows, g):
-        off = region[g] + ((cur["s"] % a.alias) * STEP_ALIAS if a.mode == "uncached" else 0)
+        epoch = cur["s"] if a.mode == "uncached" else cur["s"] // a.stale
+        off = region[g] + ((epoch % a.alias) * STEP_ALIAS if a.mode in ("uncached", "swflush") else 0)
         return (addr[rows, None] + off + np.arange(0, ROW, LINE)).ravel()
 
     def barrier(t, n_lines, drain):
@@ -88,6 +99,20 @@ def main():
         bid += 1
         return t + 1
 
+    if a.warm and a.mode in ("uncached", "swflush"):
+        allrows = np.arange(len(keep))
+        last = t
+        ws = []
+        for g in gens:
+            for e in range(min(a.alias, sm.shape[0])):
+                off = region[g] + e * STEP_ALIAS
+                ws.append((addr[allrows, None] + off + np.arange(0, ROW, LINE)).ravel())
+        ws = np.concatenate(ws)
+        reqs[2] += [("r", int(x), t + 1 + i * ISSUE_GAP) for i, x in enumerate(ws)]
+        last = t + 1 + (len(ws) - 1) * ISSUE_GAP
+        t = barrier(last + 1, 0, 0)
+        t = barrier(t, 0, 0)
+        t = barrier(t, 0, 0)
     held = {0: np.zeros(len(keep), bool), 1: np.zeros(len(keep), bool)}
     for s in range(sm.shape[0]):
         cur["s"] = s
@@ -127,7 +152,7 @@ def main():
                 npush += len(rows)
         t = barrier(last + 1, npush * (ROW // LINE), DRAIN_PER_LINE)
         stats.append((s, len(r0), len(r1), len(np.intersect1d(r0, r1)), wn[0], wn[1], wn[2]))
-    tag = a.mode + ("" if a.stale == 1 else f"-s{a.stale}") + ("" if a.alias == 1000 else f"-a{a.alias}")
+    tag = a.mode + ("" if a.stale == 1 else f"-s{a.stale}") + ("" if a.alias == 1000 else f"-a{a.alias}") + ("-w" if a.warm else "")
     a.out.mkdir(parents=True, exist_ok=True)
     for g, name in ((0, "accel0"), (1, "accel1"), (2, "owner")):
         with open(a.out / f"{tag}-{name}.csv", "w") as f:
