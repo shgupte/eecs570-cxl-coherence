@@ -33,7 +33,7 @@ prefix = sys.argv[2] if len(sys.argv) > 2 else "hot"
 logdir = Path(sys.argv[3]) if len(sys.argv) > 3 else None
 rows = {}
 for d in sorted(root.glob(prefix + "-*")):
-    m = re.match(prefix + r"-((?:shared|sharded|push)(?:-s\d+)?)-(\w+)-(?:l2)?lat(\d+)-(\d+)", d.name)
+    m = re.match(prefix + r"-((?:shared|sharded|push|uncached)(?:-s\d+)?(?:-a\d+)?)-(\w+)-(?:l2)?lat(\d+)-(\d+)", d.name)
     if not m or not (d / "stats.txt").exists():
         continue
     r = grab((d / "stats.txt").read_text())

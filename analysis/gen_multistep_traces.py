@@ -24,6 +24,11 @@ barrier release ticks give real phase and step times.
                  every reader re-reads the rows it holds (rows it has read in
                  an earlier step); the invalidate+refetch stands in for the
                  owner pushing the new value. The next read phase then hits.
+--mode uncached: no-coherence baseline (CLAY-style uncacheable pool). Every
+                 access by generator g in step s goes to a fresh alias
+                 (g, s) of the row, so no line is ever reused from a cache
+                 and no coherence message is ever sent: each read and write
+                 crosses CXL to pooled memory every step.
 --stale S      : the owner writes (and pushes) only every S steps; readers
                  keep reading their bounded-stale copies in between.
 Every step has three phases (read, write, push) and three barriers, so
@@ -48,9 +53,10 @@ def main():
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--rows", type=int, default=1024)
     ap.add_argument("--steps", type=int, default=16)
-    ap.add_argument("--mode", choices=["shared", "sharded", "push"], default="shared")
+    ap.add_argument("--mode", choices=["shared", "sharded", "push", "uncached"], default="shared")
     ap.add_argument("--no-barriers", action="store_true")
     ap.add_argument("--stale", type=int, default=1)
+    ap.add_argument("--alias", type=int, default=1000, help="uncached: aliases cycle every N steps (4 lets L2 hit, L1 miss)")
     a = ap.parse_args()
     h = np.load(a.hot)
     sm = h["steps_mask"][: a.steps]
@@ -64,8 +70,14 @@ def main():
     bid = 0
     stats = []
 
+    STEP_ALIAS = 8 * 1024 * 1024
+    cur = {"s": 0}
+    if a.mode == "uncached":
+        region = {g: g * REGION for g in gens}
+
     def lines_of(rows, g):
-        return (addr[rows, None] + region[g] + np.arange(0, ROW, LINE)).ravel()
+        off = region[g] + ((cur["s"] % a.alias) * STEP_ALIAS if a.mode == "uncached" else 0)
+        return (addr[rows, None] + off + np.arange(0, ROW, LINE)).ravel()
 
     def barrier(t, n_lines, drain):
         nonlocal bid
@@ -78,6 +90,7 @@ def main():
 
     held = {0: np.zeros(len(keep), bool), 1: np.zeros(len(keep), bool)}
     for s in range(sm.shape[0]):
+        cur["s"] = s
         r0 = np.flatnonzero(sm[s] & 1)
         r1 = np.flatnonzero(sm[s] & 2)
         last = t
@@ -114,12 +127,13 @@ def main():
                 npush += len(rows)
         t = barrier(last + 1, npush * (ROW // LINE), DRAIN_PER_LINE)
         stats.append((s, len(r0), len(r1), len(np.intersect1d(r0, r1)), wn[0], wn[1], wn[2]))
+    tag = a.mode + ("" if a.stale == 1 else f"-s{a.stale}") + ("" if a.alias == 1000 else f"-a{a.alias}")
     a.out.mkdir(parents=True, exist_ok=True)
     for g, name in ((0, "accel0"), (1, "accel1"), (2, "owner")):
-        with open(a.out / f"{a.mode}{'' if a.stale == 1 else f'-s{a.stale}'}-{name}.csv", "w") as f:
+        with open(a.out / f"{tag}-{name}.csv", "w") as f:
             for op, x, tk in sorted(reqs[g], key=lambda q: q[2]):
                 f.write(f"{op},{x},{LINE if op != 'b' else 0},{tk}\n")
-    with open(a.out / f"{a.mode}{'' if a.stale == 1 else f'-s{a.stale}'}-steps.csv", "w") as f:
+    with open(a.out / f"{tag}-steps.csv", "w") as f:
         f.write("step,rows_gpu0,rows_gpu1,rows_both,writes_by_gpu0,writes_by_gpu1,writes_by_other_owner\n")
         for r in stats:
             f.write(",".join(map(str, r)) + "\n")
