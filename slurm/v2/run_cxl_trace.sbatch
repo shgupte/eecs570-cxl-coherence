@@ -19,8 +19,8 @@ TRACE2="${TRACE2:-}"
 TRACE3="${TRACE3:-}"
 NAME="${NAME:-trace}"
 MAX_OUTSTANDING="${MAX_OUTSTANDING:-32}"
-GEM5="/scratch/engin_root/engin1/bany/simcxl-baseline/build/X86_CXL_MESI/gem5.opt"
-RESULT_ROOT="/scratch/engin_root/engin1/bany/dlrm_work/sim-results"
+GEM5="${GEM5:-/scratch/engin_root/engin1/bany/simcxl-baseline/build/X86_CXL_MESI/gem5.opt}"
+RESULT_ROOT="${RESULT_ROOT:-/scratch/engin_root/engin1/bany/dlrm_work/sim-results}"
 OUTDIR="$RESULT_ROOT/${NAME}-${SLURM_JOB_ID}"
 
 [[ -x "$GEM5" ]] || { echo "missing $GEM5" >&2; exit 1; }

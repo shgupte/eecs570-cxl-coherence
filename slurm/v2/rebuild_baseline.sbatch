@@ -9,5 +9,5 @@
 set -euo pipefail
 module load gcc/11.2.0 python/3.11.5
 source "$SLURM_SUBMIT_DIR/.venv/bin/activate"
-cd /scratch/engin_root/engin1/bany/simcxl-baseline
+cd "${SIMCXL:-/scratch/engin_root/engin1/bany/simcxl-baseline}"
 scons build/X86_CXL_MESI/gem5.opt -j8
