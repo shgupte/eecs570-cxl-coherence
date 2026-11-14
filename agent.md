@@ -36,7 +36,7 @@ Done (see `analysis/REPORT_2026-11-14.md`)
   uncacheable baseline. CXL-style MESI ties software; MESI wins only with
   GPU-to-GPU forwarding.
 Open
-- Robustness: another window of steps / another day.
+- Robustness: second step window done (same result); another day not yet.
 - Remaining emulation caveats listed in the report (commutative state is
   emulated; pool-mediated covers GETX only).
 
