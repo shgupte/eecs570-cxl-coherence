@@ -1,0 +1,2 @@
+tag,config,rp_us,rh_us,w1_us,w2_us,step_us,crit_us,inv,ld_hit,ld_miss,st_hit,st_miss,fwd_getx,fwd_gets,mem_reads
+comm-d1-x64,base,34.24,52.82,6.18,0.01,93.24,59.01,326784,0,809960,298408,163392,0,0,87040

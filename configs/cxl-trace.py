@@ -54,6 +54,12 @@ def parse_args() -> argparse.Namespace:
         "traffic crosses the L2's single link, so this sets the pool port "
         "bandwidth. 0 keeps the default.",
     )
+    parser.add_argument(
+        "--pool-mediated",
+        action="store_true",
+        help="Ownership transfers go through the pool (L2) as in CXL "
+        "back-invalidate, not cache to cache.",
+    )
     args = parser.parse_args()
     for path in (args.cpu_config, *args.device_config):
         if not path.is_file():
@@ -77,6 +83,8 @@ def main() -> None:
         l2_assoc=16,
         num_l2_banks=1,
         l2_latency=args.l2_latency_cycles,
+        # passed only when set, so binaries built before the option still run
+        **({"pool_mediated": True} if args.pool_mediated else {}),
     )
     memory = DIMM_DDR5_4400(size="3GiB")
     if args.cxl_extra_latency_ns:

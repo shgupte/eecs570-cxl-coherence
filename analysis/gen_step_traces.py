@@ -34,8 +34,9 @@ row stays private to g (the schedule knows the next reader; the store happens
 in the last step before another GPU reads the row, or at once if g does not
 read it again within --keep-window steps). This is what MESI gives
 for free by leaving the line in M state in g's cache.
-Emulation limit: a kept row that needs a store this step is still fetched
-first (counted as keep_extra in meta.txt), which overcharges --keep.
+Emulation: a kept row that needs a store this step (keep_extra in meta.txt)
+is charged one load instead of one store: same number of transfers, opposite
+direction.
 
 Emulation of the uncacheable modes: a GPU reads its k-th row of step s at a
 private address (alias s % A, so it never hits its L1) and "stores to the
@@ -189,10 +190,10 @@ def main():
         for g in gens:
             p = per[g]
             if a.mode in ("comm", "mesi_rmw"):
-                ks = np.flatnonzero(~p["defer"])
+                ks = np.flatnonzero(~p["defer"] & ~p["extra"])
                 w = lines(copy(g, ks))
             elif a.mode == "unc_agg":
-                ks = np.flatnonzero(~p["isagg"])
+                ks = np.flatnonzero(~p["isagg"] & ~p["extra"])
                 w = lines(copy(g, ks))
             else:
                 ks = np.flatnonzero(~p["isagg"])
@@ -213,7 +214,7 @@ def main():
                     nin = len(rd)
                     rd = lines(rd) if nin else np.array([], np.int64)
                 if unc:     # stores first: the mailbox loads then push them out of the L1
-                    tt = issue(g, "w", lines(copy(g, ks)), t)
+                    tt = issue(g, "w", lines(copy(g, ks[~p["extra"][ks]])), t)
                     last = max(last, issue(g, "r", rd, tt))
                 else:
                     tt = issue(g, "r", rd, t)
