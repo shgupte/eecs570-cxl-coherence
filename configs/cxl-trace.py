@@ -4,7 +4,7 @@
 import argparse
 from pathlib import Path
 
-from m5.objects import TrafficGen
+from m5.objects import SimpleExtLink, SimpleIntLink, TrafficGen
 
 from gem5.coherence_protocol import CoherenceProtocol
 from gem5.components.boards.test_board import TestBoard
@@ -45,6 +45,15 @@ def parse_args() -> argparse.Namespace:
         "memory-controller access (embeddings live in this memory). "
         "0 keeps the original host-DDR5 baseline.",
     )
+    parser.add_argument(
+        "--link-bw",
+        type=int,
+        default=0,
+        help="Bytes/cycle of every Ruby network link (SimpleNetwork "
+        "bandwidth_factor, default 16 = 38.4 GB/s at 2.4 GHz). All pool "
+        "traffic crosses the L2's single link, so this sets the pool port "
+        "bandwidth. 0 keeps the default.",
+    )
     args = parser.parse_args()
     for path in (args.cpu_config, *args.device_config):
         if not path.is_file():
@@ -56,6 +65,9 @@ def main() -> None:
     args = parse_args()
     requires(coherence_protocol_required=CoherenceProtocol.CXL_MESI_TWO_LEVEL)
 
+    if args.link_bw:
+        SimpleExtLink.bandwidth_factor = args.link_bw
+        SimpleIntLink.bandwidth_factor = args.link_bw
     cache_hierarchy = CXLMESITwoLevelCacheHierarchy(
         l1d_size=args.l1d_size,
         l1d_assoc=8,
