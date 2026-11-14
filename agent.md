@@ -27,23 +27,18 @@ honestly. Evidence for and against MESI must both be reported.
 - Commit to branch `v2-barrier-criteo-selective`; push when a phase is done.
 
 ## State (update this section as work proceeds)
-Done
-- P1 traffic model (`step_traffic.py`): pool moves 1.4x fewer row transfers
-  per step than deduplicated sharding, 7.7x fewer than per-lookup all-to-all.
-- P2 placement (`sample_placement.py`): greedy sharing-aware placement cuts
-  row fetches 29%; affinity placement also leaves 30% of fetches as rows the
-  same GPU alone updated last. Caches: `dlrm_work/criteo/cache/{d1,pl_greedy,pl_aff2}`.
-- P3 first pass (`gen_step_traces.py`, `summarize_step.py`): with the
-  gradient path modeled, MESI with direct read-modify-write + affinity
-  placement gives 40 µs/step vs 108 µs for the uncacheable baseline.
-Running
-- Sensitivity matrix (`run_step_matrix.sh`): bandwidth, latency, MLP, 8x scale.
-- Stale-read accuracy runs (`staleness_train.py`, `slurm/v2/stale_train.sbatch`).
-Open check
-- MESI_Two_Level forwards data cache to cache without using the pool's
-  port. CXL 3.0 back-invalidate routes it through the device. Quantify how
-  much of the MESI gain depends on that (bw64 runs; if needed a protocol
-  variant that forwards through the L2).
+Done (see `analysis/REPORT_2026-11-14.md`)
+- P1 traffic model, P2 placement, P3/P4 whole-step gem5 matrix (119 runs),
+  pool-mediated protocol option (`patches/simcxl-v3-pool-mediated.patch`,
+  `--pool-mediated`), stale-read accuracy runs.
+- Answer so far: affinity placement + software-kept private rows +
+  commutative merge at the pool = 2.2x step, 3.3x critical path over the
+  uncacheable baseline. CXL-style MESI ties software; MESI wins only with
+  GPU-to-GPU forwarding.
+Open
+- Robustness: another window of steps / another day.
+- Remaining emulation caveats listed in the report (commutative state is
+  emulated; pool-mediated covers GETX only).
 
 ## Next directions if the current one dead-ends (in order)
 1. Pool-mediated forwarding variant of the Ruby protocol, to remove the

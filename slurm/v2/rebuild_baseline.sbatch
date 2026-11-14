@@ -8,6 +8,6 @@
 #SBATCH --output=logs/rebuild-baseline-%j.log
 set -euo pipefail
 module load gcc/11.2.0 python/3.11.5
-source "$SLURM_SUBMIT_DIR/.venv/bin/activate"
+source "${VENV:-$SLURM_SUBMIT_DIR/.venv}/bin/activate"
 cd "${SIMCXL:-/scratch/engin_root/engin1/bany/simcxl-baseline}"
-scons build/X86_CXL_MESI/gem5.opt -j8
+scons build/X86_CXL_MESI/gem5.opt -j${SLURM_CPUS_PER_TASK:-8}
