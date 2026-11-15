@@ -115,6 +115,15 @@ class Hierarchy(CXLMESITwoLevelCacheHierarchy):
         for i, c in enumerate(self._l1_controllers):
             if not 1 <= i <= STAR["n_gpu"]:
                 c.commutative = False
+        # A window above the stock limits (bulk transfer): let the sequencer
+        # and the transaction tables hold it. Unchanged for the default 32.
+        mo = STAR.get("max_outstanding", 0)
+        if mo > 128:
+            for c in self._l1_controllers[1:]:
+                c.sequencer.max_outstanding_requests = 2 * mo
+                c.number_of_TBEs = 2 * mo
+            for c in self._l2_controllers:
+                c.number_of_TBEs = 2 * mo * (len(self._l1_controllers) - 1)
 
 
 def parse_args() -> argparse.Namespace:
@@ -206,6 +215,7 @@ def main() -> None:
         )
         hier_mod.SimplePt2Pt = StarNet
     STAR["n_gpu"] = args.gpus
+    STAR["max_outstanding"] = args.max_outstanding
     cache_hierarchy = Hierarchy(
         l1d_size=args.l1d_size,
         l1d_assoc=8,
