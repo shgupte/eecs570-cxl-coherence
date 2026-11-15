@@ -43,6 +43,12 @@ Done (see `analysis/REPORT_2026-11-14.md`, second version)
   lazy write-back emulation undercharged gradient return; private-alias
   lines surviving in a large L1 (uncacheable designs now use a 64 KiB L1,
   ld_hit must be 0); warm-up engines must not send commutative updates.
+- Third round (`run_port_checks.sh`, `prep_checks.sbatch`): sharding with row
+  migration takes 17.0 µs and beats the best pool design (23.4); second
+  window, second day and 8x scale agree; software keep window 16 ties
+  hardware at 8 ports. Conclusion now: the gain is in the schedule, the pool
+  is a capacity choice. Report with figures:
+  https://claude.ai/artifact/67XjdC8skLE98faHYZS8EG
 Open
 - 1/8-sample scale check of the port matrix (`X=8 run_port_matrix.sh`).
 - Real step time to judge the placer cost; another Criteo day; multi-hot.

@@ -88,8 +88,13 @@ def main():
     unc = a.mode in ("unc_agg", "comm")
     assert unc or not a.keep, "--keep is for the uncacheable modes (MESI keeps lines by itself)"
 
+    # --keep plans with the steps after the trace too, so that the last steps
+    # see their rows' next use (otherwise they store rows they could keep)
+    look = a.keep_window if a.keep else 0
     steps = []
-    for i in range(a.first, a.first + S):
+    for i in range(a.first, a.first + S + look):
+        if not (a.cache / f"b{i}.npz").exists():
+            break
         d = np.load(a.cache / f"b{i}.npz")
         k, m = d["keys"], d["mask"]
         h = (k.astype(np.uint64) * np.uint64(0x9E3779B97F4A7C15)) >> np.uint64(40)
@@ -118,7 +123,7 @@ def main():
     # ret = this GPU alone updated the row last
     nxt = np.zeros(NR, np.uint8)
     nxt_s = np.full(NR, 1 << 30)
-    for s in range(S - 1, -1, -1):
+    for s in range(len(plan) - 1, -1, -1):
         stp = plan[s]
         near = nxt_s[stp["rid"]] - s <= a.keep_window     # still in the GPU's cache by then
         stp["defer"] = (stp["n"] == 1) & (nxt[stp["rid"]] == stp["mask"]) & near & a.keep
@@ -131,6 +136,7 @@ def main():
             p["extra"] = (holder[p["rid"]] == g) & ~p["defer"] & a.keep
         sole = np.where(stp["n"] == 1, stp["bits"].argmax(1), -1).astype(np.int8)
         holder[stp["rid"]] = sole
+    plan = plan[:S]
     maxp = max(len(p["rid"]) for st in plan for p in st["per"])
     maxm = max(int((~p["isagg"]).sum()) for st in plan for p in st["per"])
     maxin = max(int((st["n"][st["agg"] == g] - 1).sum()) for st in plan for g in range(G))
