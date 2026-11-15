@@ -161,9 +161,9 @@ instead of 1.9 times.
   could read stale data. The owner now drops its copy. The fix costs about
   1.5% (23.4 to 23.7 µs at 8 ports).
 - **Robustness.** The bulk results repeat on a second step window and a
-  second Criteo day within 8%. At 8x trace scale the two pool designs keep
-  their order (software 89.5 µs, MESI + deltas 82.7 µs); the sharded 8x bulk
-  runs were still running when this report was written.
+  second Criteo day within 8%. At 8x trace scale the order is the same
+  (sharded dedup 202 µs, + placement 151, + migration 89; pool baseline 260,
+  software 89.5, MESI + deltas 82.7).
 
 ## How far to trust the link-level model
 
