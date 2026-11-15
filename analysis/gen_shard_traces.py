@@ -53,7 +53,13 @@ def main():
     ap.add_argument("--alias", type=int, default=4)
     ap.add_argument("--row-shift", type=int, default=26)
     ap.add_argument("--tag", default="")
+    ap.add_argument("--issue-gap", type=int, default=ISSUE_GAP,
+                    help="ticks between a GPU's requests (1000 = one line per ns; small = bulk issue)")
+    ap.add_argument("--interleave", action="store_true",
+                    help="a GPU issues its rows round-robin over the owners (one bulk message per "
+                         "peer, all in parallel) instead of in key order (owner after owner)")
     a = ap.parse_args()
+    globals()["ISSUE_GAP"] = a.issue_gap
     G, A, S = a.gpus, a.alias, a.steps
     files = sorted(a.cache.glob("b*.npz"))
     tlen = np.max([np.load(f)["rowmax"] for f in files], axis=0) + 1
@@ -166,19 +172,23 @@ def main():
             p = per[g]
             base = reg[g] + (s % A) * STRIDE + p["j"][sel] * BLK + p["o"][sel] * LINE
             return (base[:, None] + np.arange(0, BLK, ROW)).ravel()
+        def rr(sel, j):                                 # round-robin over owners
+            ix = np.flatnonzero(sel)
+            return ix[np.argsort(j[ix], kind="stable")] if a.interleave else ix
         for ph in (0, 1):
             last = t
             for g in gens:
-                last = max(last, issue(g, "r", lines(g, per[g]["hz"] == bool(ph)), t))
+                last = max(last, issue(g, "r", lines(g, rr(per[g]["hz"] == bool(ph), per[g]["j"])), t))
             t = barrier(last)
         last = t
         for g in gens:
             if mig:
                 p = per[g]
-                base = wreg[g] + (s % A) * STRIDE + p["wj"] * BLK + p["wo"] * LINE
+                o_ = rr(np.ones(len(p["wj"]), bool), p["wj"])
+                base = wreg[g] + (s % A) * STRIDE + p["wj"][o_] * BLK + p["wo"][o_] * LINE
                 w = (base[:, None] + np.arange(0, BLK, ROW)).ravel()
             else:
-                w = lines(g, np.ones(len(per[g]["j"]), bool))
+                w = lines(g, rr(np.ones(len(per[g]["j"]), bool), per[g]["j"]))
             last = max(last, issue(g, "w", w, t))
         t = barrier(last)
         t = barrier(t)

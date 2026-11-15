@@ -89,7 +89,7 @@ class StarNet(SimpleNetwork):
         pool_r = None
         if not sharded:
             pool_r = router()
-            link(pool_r, hub, gpu_bw * pool_ports)
+            link(pool_r, hub, STAR.get("pool_bw") or gpu_bw * pool_ports)
         l2i = 0
         for i, c in enumerate(controllers):
             if 1 <= i <= G:
@@ -121,6 +121,8 @@ class Hierarchy(CXLMESITwoLevelCacheHierarchy):
         if mo > 128:
             for c in self._l1_controllers[1:]:
                 c.sequencer.max_outstanding_requests = 2 * mo
+                # a queued request may wait a whole phase: not a deadlock
+                c.sequencer.deadlock_threshold = 100_000_000
                 c.number_of_TBEs = 2 * mo
             for c in self._l2_controllers:
                 c.number_of_TBEs = 2 * mo * (len(self._l1_controllers) - 1)
@@ -189,6 +191,9 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--gpu-bw", type=int, default=16,
                         help="StarNet: bytes/cycle of each GPU port")
+    parser.add_argument("--pool-bw", type=int, default=0,
+                        help="StarNet pool: bytes/cycle of the pool link "
+                        "(default gpu_bw * pool_ports)")
     parser.add_argument("--pool-ports", type=int, default=1,
                         help="StarNet pool: pool ports (each gpu-bw)")
     parser.add_argument("--gpus", type=int, default=8)
@@ -211,6 +216,7 @@ def main() -> None:
             n_gpu=args.gpus,
             gpu_bw=args.gpu_bw,
             pool_ports=args.pool_ports,
+            pool_bw=args.pool_bw,
             sharded=args.topology == "sharded",
         )
         hier_mod.SimplePt2Pt = StarNet

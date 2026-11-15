@@ -91,8 +91,12 @@ def main():
     ap.add_argument("--owner", type=float, default=0.0,
                     help="--fast only: bonus per row whose static owner (row-wise blocks, as in "
                          "step_traffic.py) is the GPU: placement for a sharded all-to-all system")
+    ap.add_argument("--lag", type=int, default=1,
+                    help="affinity: the bonus uses the sole-updater table as of --lag steps earlier "
+                         "(a placer pipelined over --lag cores cannot see the steps still in flight)")
     a = ap.parse_args()
     G = a.gpus
+    hist = []                                           # sole-updater tables, one per finished step
     cf = load_c() if a.fast else None
     assert a.fast or not a.owner
     tlen = None
@@ -121,9 +125,10 @@ def main():
             gpu = (np.arange(B) // cap).astype(np.int8)
         else:
             bonus = None
-            if a.policy == "affinity" and len(sole_k):
-                ix = np.searchsorted(sole_k, keys); ix[ix >= len(sole_k)] = 0
-                bonus = np.where(sole_k[ix] == keys, sole_m[ix], 0).astype(np.uint8)
+            if a.policy == "affinity" and len(hist) >= a.lag and len(hist[-a.lag][0]):
+                bk, bm = hist[-a.lag]
+                ix = np.searchsorted(bk, keys); ix[ix >= len(bk)] = 0
+                bonus = np.where(bk[ix] == keys, bm[ix], 0).astype(np.uint8)
             w = ((counts >= 2) & (counts <= a.cmax)).astype(np.float32)
             if cf:
                 own = None
@@ -153,6 +158,7 @@ def main():
         nk = np.concatenate([sole_k[keep], keys])
         nm = np.concatenate([sole_m[keep], np.where(n == 1, mask, 0).astype(np.uint8)])
         o = np.argsort(nk, kind="stable"); sole_k, sole_m = nk[o], nm[o]
+        hist.append((sole_k, sole_m)); hist = hist[-a.lag:]
         print(f"step {i}: U={len(keys)} P={int(n.sum())} single={float((n == 1).mean()):.3f}", flush=True)
     if secs:
         print(f"placer C loop: mean {np.mean(secs) * 1e3:.2f} ms/step, max {np.max(secs) * 1e3:.2f} ms "

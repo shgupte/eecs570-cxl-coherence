@@ -82,7 +82,10 @@ def main():
                          "store ever invalidates the warm-up engines). Tag mesi_ww.")
     ap.add_argument("--flush-mib", type=int, default=4, help="--warm-write: at least 2x the L1 size")
     ap.add_argument("--tag", default="")
+    ap.add_argument("--issue-gap", type=int, default=ISSUE_GAP,
+                    help="ticks between a GPU's requests (1000 = one line per ns; small = bulk issue)")
     a = ap.parse_args()
+    globals()["ISSUE_GAP"] = a.issue_gap
     assert not a.warm_write or a.mode == "mesi_rmw"
     G, A, S = a.gpus, a.alias, a.steps
     unc = a.mode in ("unc_agg", "comm")
