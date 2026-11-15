@@ -75,8 +75,15 @@ def main():
                     help="uncacheable modes: software cache of private rows (see docstring)")
     ap.add_argument("--keep-window", type=int, default=4,
                     help="--keep: steps a private row stays in the GPU's cache (match the MESI L1)")
+    ap.add_argument("--warm-write", action="store_true",
+                    help="mesi_rmw: one engine warms the pool by writing every row, then flushes its "
+                         "own cache with --flush-mib of other lines. The pool then holds every row "
+                         "with no GPU copy and no stale sharer (needed for --commutative, where no "
+                         "store ever invalidates the warm-up engines). Tag mesi_ww.")
+    ap.add_argument("--flush-mib", type=int, default=4, help="--warm-write: at least 2x the L1 size")
     ap.add_argument("--tag", default="")
     a = ap.parse_args()
+    assert not a.warm_write or a.mode == "mesi_rmw"
     G, A, S = a.gpus, a.alias, a.steps
     unc = a.mode in ("unc_agg", "comm")
     assert unc or not a.keep, "--keep is for the uncacheable modes (MESI keeps lines by itself)"
@@ -164,7 +171,11 @@ def main():
         if a.mode == "mesi_agg":
             warm.append(np.arange(mb[0], end, LINE))
     warm = np.concatenate(warm)
-    last = max(issue(G, "r", warm, t), issue(G + 1, "r", warm, t))
+    if a.warm_write:
+        warm = np.concatenate([warm, np.arange(end, end + a.flush_mib * 2 ** 20, LINE)])
+        last = issue(G, "w", warm, t)
+    else:
+        last = max(issue(G, "r", warm, t), issue(G + 1, "r", warm, t))
     t = barrier(last)
     for _ in range(PHASES - 1):
         t = barrier(t)
@@ -223,7 +234,7 @@ def main():
         t = barrier(last)
         st_["U"] += len(stp["rid"])
 
-    tag = a.tag or f"{a.mode}{'_keep' if a.keep else ''}-{a.cache.name}-x{a.sample}"
+    tag = a.tag or f"{'mesi_ww' if a.warm_write else a.mode}{'_keep' if a.keep else ''}-{a.cache.name}-x{a.sample}"
     d = a.out / tag
     d.mkdir(parents=True, exist_ok=True)
     for g in allg:

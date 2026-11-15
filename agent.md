@@ -27,18 +27,26 @@ honestly. Evidence for and against MESI must both be reported.
 - Commit to branch `v2-barrier-criteo-selective`; push when a phase is done.
 
 ## State (update this section as work proceeds)
-Done (see `analysis/REPORT_2026-11-14.md`)
-- P1 traffic model, P2 placement, P3/P4 whole-step gem5 matrix (119 runs),
-  pool-mediated protocol option (`patches/simcxl-v3-pool-mediated.patch`,
-  `--pool-mediated`), stale-read accuracy runs.
-- Answer so far: affinity placement + software-kept private rows +
-  commutative merge at the pool = 2.2x step, 3.3x critical path over the
-  uncacheable baseline. CXL-style MESI ties software; MESI wins only with
-  GPU-to-GPU forwarding.
+Done (see `analysis/REPORT_2026-11-14.md`, second version)
+- Whole-step traffic model, placement, staleness runs (first version).
+- Explicit port topology (`configs/cxl-trace.py --topology pool|sharded`),
+  sharded all-to-all baseline (`gen_shard_traces.py`), real protocol support
+  for commutative updates and pool-mediated reads
+  (`patches/simcxl-v4-commutative.patch`: `--commutative`,
+  `--pool-mediated-gets`), port matrix of 112 runs (`run_port_matrix.sh`).
+- Placement checks: `placement_check.py` (identical training), `placer.c`.
+- Answer so far: per-lookup all-to-all 202 µs; deduplicated 45; with
+  placement 34. Pool with 1 port 61-64 (loses); with 4+ ports 23-26 (wins
+  1.3-1.44x) because private rows stay at their GPU. MESI + commutative
+  updates equals MESI with forwarding without needing forwarding.
+- Artifacts found this round: SimpleNetwork throttles only switch outputs;
+  lazy write-back emulation undercharged gradient return; private-alias
+  lines surviving in a large L1 (uncacheable designs now use a 64 KiB L1,
+  ld_hit must be 0); warm-up engines must not send commutative updates.
 Open
-- Robustness: second step window done (same result); another day not yet.
-- Remaining emulation caveats listed in the report (commutative state is
-  emulated; pool-mediated covers GETX only).
+- 1/8-sample scale check of the port matrix (`X=8 run_port_matrix.sh`).
+- Real step time to judge the placer cost; another Criteo day; multi-hot.
+- Different link speed/latency for NVLink vs CXL beyond the sensitivity rows.
 
 ## Next directions if the current one dead-ends (in order)
 1. Pool-mediated forwarding variant of the Ruby protocol, to remove the

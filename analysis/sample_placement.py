@@ -18,7 +18,7 @@ Policies (every GPU gets exactly B/G samples):
 Writes per-step caches (keys, counts, mask, rowmax, raw) readable by
 step_traffic.py. One-hot data only (Criteo).
 """
-import argparse
+import argparse, ctypes, subprocess, time
 from pathlib import Path
 import numpy as np
 
@@ -50,6 +50,31 @@ def assign(rid, valid, G, cap, w, lam, prior=None, bonus=None, beta=0.0):
     return out, cur
 
 
+def load_c():
+    """Compile placer.c next to this file (once) and return its assign()."""
+    src = Path(__file__).with_name("placer.c"); so = src.with_suffix(".so")
+    if not so.exists() or so.stat().st_mtime < src.stat().st_mtime:
+        subprocess.run(["gcc", "-O2", "-shared", "-fPIC", "-o", str(so), str(src)], check=True)
+    f = ctypes.CDLL(str(so)).assign
+    P = ctypes.c_void_p
+    f.argtypes = [ctypes.c_int, ctypes.c_int, P, ctypes.c_int, ctypes.c_int, P, ctypes.c_double,
+                  P, P, ctypes.c_double, P, ctypes.c_double, P, P]
+    return f
+
+
+def assign_c(f, rid, valid, G, cap, w, lam, prior=None, bonus=None, beta=0.0, owner=None, wown=0.0):
+    """Same result as assign(); also returns the seconds spent in the C loop."""
+    B, T = rid.shape
+    r32 = np.where(valid, rid, -1).astype(np.int32)
+    cur = np.zeros(int(rid.max()) + 1, np.uint8); out = np.empty(B, np.int8)
+    ptr = lambda x: None if x is None else x.ctypes.data
+    w = np.ascontiguousarray(w, np.float32)
+    t0 = time.perf_counter()
+    f(B, T, r32.ctypes.data, G, cap, w.ctypes.data, lam, ptr(prior), ptr(bonus), beta, ptr(owner), wown,
+      cur.ctypes.data, out.ctypes.data)
+    return out, cur, time.perf_counter() - t0
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--batches", type=Path, required=True)
@@ -62,8 +87,22 @@ def main():
     ap.add_argument("--cmax", type=int, default=64, help="rows read more often than this in a step get weight 0")
     ap.add_argument("--lam", type=float, default=1.0, help="load-balance penalty")
     ap.add_argument("--row-shift", type=int, default=26)
+    ap.add_argument("--fast", action="store_true", help="C inner loop (placer.c); prints its time per step")
+    ap.add_argument("--owner", type=float, default=0.0,
+                    help="--fast only: bonus per row whose static owner (row-wise blocks, as in "
+                         "step_traffic.py) is the GPU: placement for a sharded all-to-all system")
     a = ap.parse_args()
     G = a.gpus
+    cf = load_c() if a.fast else None
+    assert a.fast or not a.owner
+    tlen = None
+    if a.owner:
+        T = np.load(a.batches / "b0.npz")["lengths"].shape[0]
+        tlen = np.zeros(T, np.int64)
+        for i in range(a.steps):
+            d = np.load(a.batches / f"b{i}.npz")
+            np.maximum.at(tlen, np.repeat(np.arange(T), (d["lengths"] > 0).sum(1)), d["indices"] + 1)
+    secs = []
     a.out.mkdir(parents=True, exist_ok=True)
     sole_k = np.array([], np.int64); sole_m = np.array([], np.uint8)   # rows a GPU alone updated last
     for i in range(a.steps):
@@ -86,9 +125,22 @@ def main():
                 ix = np.searchsorted(sole_k, keys); ix[ix >= len(sole_k)] = 0
                 bonus = np.where(sole_k[ix] == keys, sole_m[ix], 0).astype(np.uint8)
             w = ((counts >= 2) & (counts <= a.cmax)).astype(np.float32)
-            gpu, cur = assign(rid, valid, G, cap, w, a.lam, bonus=bonus, beta=a.beta)
-            for _ in range(a.passes if a.policy != "greedy" else 0):
-                gpu, cur = assign(rid, valid, G, cap, w, a.lam, prior=cur, bonus=bonus, beta=a.beta)
+            if cf:
+                own = None
+                if a.owner:
+                    kt, kr = keys >> a.row_shift, keys & ((1 << a.row_shift) - 1)
+                    own = (kr // -(-tlen[kt] // G)).astype(np.int8)
+                gpu, cur, dt = assign_c(cf, rid, valid, G, cap, w, a.lam, bonus=bonus, beta=a.beta,
+                                        owner=own, wown=a.owner)
+                for _ in range(a.passes if a.policy != "greedy" else 0):
+                    gpu, cur, d2 = assign_c(cf, rid, valid, G, cap, w, a.lam, prior=cur, bonus=bonus,
+                                            beta=a.beta, owner=own, wown=a.owner)
+                    dt += d2
+                secs.append(dt)
+            else:
+                gpu, cur = assign(rid, valid, G, cap, w, a.lam, bonus=bonus, beta=a.beta)
+                for _ in range(a.passes if a.policy != "greedy" else 0):
+                    gpu, cur = assign(rid, valid, G, cap, w, a.lam, prior=cur, bonus=bonus, beta=a.beta)
         mask = np.zeros(len(keys), np.uint8)
         np.bitwise_or.at(mask, rid[valid], (1 << gpu.astype(np.uint8))[:, None].repeat(T, 1)[valid])
         rowmax = np.zeros(T, np.int64)
@@ -102,6 +154,9 @@ def main():
         nm = np.concatenate([sole_m[keep], np.where(n == 1, mask, 0).astype(np.uint8)])
         o = np.argsort(nk, kind="stable"); sole_k, sole_m = nk[o], nm[o]
         print(f"step {i}: U={len(keys)} P={int(n.sum())} single={float((n == 1).mean()):.3f}", flush=True)
+    if secs:
+        print(f"placer C loop: mean {np.mean(secs) * 1e3:.2f} ms/step, max {np.max(secs) * 1e3:.2f} ms "
+              f"(one core, {B} samples)")
 
 
 if __name__ == "__main__":
