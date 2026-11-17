@@ -1,0 +1,12 @@
+CPU(s):              36
+NUMA node(s):        2
+Model name:          Intel(R) Xeon(R) Gold 6154 CPU @ 3.00GHz
+table 208,000,000 rows, 99.2 GiB, filled in 6 s
+rows per step (8 deduplicated shares): 293,792 = 150 MB
+threads  1: gather    3.0 GB/s ( 50.14 ms/step) | update    3.7 GB/s ( 40.74 ms/step)
+threads  2: gather    6.0 GB/s ( 25.02 ms/step) | update    7.1 GB/s ( 21.23 ms/step)
+threads  4: gather   11.6 GB/s ( 12.99 ms/step) | update   15.2 GB/s (  9.91 ms/step)
+threads  8: gather   21.3 GB/s (  7.08 ms/step) | update   26.4 GB/s (  5.70 ms/step)
+threads 16: gather   33.5 GB/s (  4.49 ms/step) | update   40.0 GB/s (  3.76 ms/step)
+threads 32: gather   36.4 GB/s (  4.14 ms/step) | update   57.1 GB/s (  2.63 ms/step)
+threads 36: gather   33.8 GB/s (  4.45 ms/step) | update   57.1 GB/s (  2.64 ms/step)

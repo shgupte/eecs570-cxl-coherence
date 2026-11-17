@@ -62,6 +62,7 @@ write them back.
 | GPU cache size needed by the MESI design | Link-level model | 6 runs |
 | Does placement change training? | Real DLRM training, 40 steps | 1 run |
 | Placement speed and the cost of running it as a pipeline | Placer in C, link-level model | 5 runs |
+| Real step time on an A100 slice; host-memory gather and update rates | PyTorch on GPU; C + OpenMP on a 36-core server | 3 runs |
 
 All runs use the same Criteo 1TB batches: 65,536 samples per step, 26 tables,
 512-byte rows, 8 GPUs. gem5 replays a 1/64 sample of the rows; the link-level
@@ -104,8 +105,8 @@ one 25 GB/s network card per GPU.
 - **Against the uncacheable pool:** 2.2 times faster at 8 ports (381 against
   851 µs) and 2.5 times at one port.
 
-For scale: a full training step on 8 GPUs takes roughly 3 to 4 ms (our
-estimate from MLPerf results, not verified). The embedding traffic above is
+For scale: GPU compute per step is about 4 ms on a whole A100 (measured on
+a slice and scaled, section 8). The embedding traffic above is
 then 3% of a step for NVLink sharding, 11% for the pool, and 39% for
 sharding on network cards.
 
@@ -186,9 +187,8 @@ GPU's CXL port and its PCIe port are the same physical link (63 GB/s).
 - **The pool is ahead only if it serves rows faster than the host can.**
   Published host platforms read about 77 to 110 GB/s. Measured CXL devices
   deliver about half their theoretical bandwidth, which would put the pool
-  near the 4-port row. On those figures the pool is 1.3 to 2.5 times faster
-  on embedding traffic. With about 3.5 ms of GPU compute per step (our rough
-  estimate), that is a 5 to 25% faster training step.
+  near the 4-port row. Section 8 replaces these published figures with our own
+  measurement.
 
 Cost of holding 2 TB of embedding tables for 8 GPUs (prices from November
 2026 web sources; several are secondary or estimates):
@@ -209,6 +209,43 @@ Cost of holding 2 TB of embedding tables for 8 GPUs (prices from November
   over a host-memory baseline.
 - **Where a pool could still be cheaper:** tables above one server's 8 TB,
   or memory shared by several servers. We did not model either.
+
+### 8. Measurements on real hardware
+
+We ran an MLPerf-size DLRM on the real Criteo batches on one A100 slice
+(40 GB, about 3/7 of the card's compute; the class account allows one GPU),
+and measured how fast host memory serves rows on a 36-core server.
+
+| One GPU's share of a step (8,192 samples), mixed precision | Time |
+|---|---|
+| Forward + backward + dense update | 9.4 ms |
+| Embedding lookup, tables in GPU memory | 0.48 ms |
+| Embedding update, tables in GPU memory | 1.17 ms |
+
+Scaled by 7/3, compute on a whole A100 would be about 4 ms. This is plain
+PyTorch; tuned frameworks are faster.
+
+| Host memory, 99 GB table, rows of one step (150 MB each way) | Gather | Update |
+|---|---|---|
+| Plain PyTorch, 8 threads | 15.6 GB/s (9.8 ms) | 7.4 GB/s (20.7 ms) |
+| C + OpenMP with prefetch, 16 threads | 33.5 GB/s (4.5 ms) | 40.0 GB/s (3.8 ms) |
+| C + OpenMP with prefetch, 32 threads | 36.4 GB/s (4.1 ms) | 57.1 GB/s (2.6 ms) |
+
+- **Compute dominates.** At 4 to 9 ms per step, GPU compute is 10 to 25
+  times the pool's embedding traffic (0.38 ms). Differences between designs
+  shrink accordingly.
+- **Host memory is limited by the CPU, not the link.** Even tuned, the host
+  serves 36 to 57 GB/s, far below the 100 to 504 GB/s assumed in section 7.
+  Serving one step takes 6.8 ms on all 32 cores, or about 3.6 ms with our
+  placement and GPU cache (which cut the rows by 47%).
+- **End to end, the pool is 1.0 to 1.6 times faster than host memory.** With
+  lookahead the host work overlaps GPU compute, so a host-memory step is
+  about max(compute, host work) plus transfer: 4.4 to 7.2 ms on a whole A100,
+  against 4.4 to 4.7 ms for the pool. On the slice we measured (9.4 ms
+  compute) the two are equal.
+- **The pool's real advantage over host memory is freeing the CPU.** The
+  host design keeps 16 to 32 cores busy moving rows. This assumes the pool
+  itself serves 250 to 500 GB/s, which we did not measure.
 
 ## How far to trust the link-level model
 
@@ -254,7 +291,8 @@ ordering of designs agrees in both tools except for near-ties.
 
 ## Limits
 
-- Only embedding traffic is timed. GPU compute is an outside estimate.
+- GPU compute was measured on one A100 slice with plain PyTorch and scaled
+  to a whole card; no 8-GPU run was possible.
 - No GPU with a CXL port exists; one 63 GB/s port per GPU is an assumption.
 - Measured CXL devices deliver about half their theoretical bandwidth, which
   the model does not include.
