@@ -218,6 +218,80 @@ def pooled_flows(a, B, dedup, to_pool=False):
     return out, stats
 
 
+def hybrid_flows(a, B, dedup, promote):
+    """Hybrid: a pool with near-memory pooling, plus GPUs that keep whole bags.
+    Uses the ONE-HOT cache: with the MLPerf multi-hot recipe a bag is a fixed
+    function of its one-hot id, so a key is a bag of MH_SIZES[table] rows.
+    A bag lives in the pool or is held (all its rows, modified) by one GPU.
+      held by its only user   pooled and updated locally, no traffic
+      in the pool             every user sends the indices, gets one pooled
+                              vector, sends one gradient vector (per lookup,
+                              or once per GPU with dedup)
+      promotion (lookahead)   a GPU that will be the bag's only user for the
+                              next `run` uses fetches its rows if that saves
+                              traffic: run * lookups > bag size
+      recall                  another GPU uses a held bag: the holder writes
+                              its rows back, the bag returns to the pool
+    promote=False is the pure near-memory pool."""
+    from sample_placement import MH_SIZES
+    G, S, W = a.gpus, a.steps, a.keep_window
+    steps = load(a.cache, a.first, S + W, a.sample)
+    allk = np.unique(np.concatenate([s["k"] for s in steps]))
+    NR = len(allk)
+    msz = np.array(MH_SIZES, np.int64)
+    for s in steps:
+        s["rid"] = np.searchsorted(allk, s["k"])
+        s["bits"] = bits_of(s["m"], G); s["n"] = s["bits"].sum(1)
+        s["cnt"] = np.load(a.cache / f"b{s['i']}.npz")["counts"]
+        if a.sample > 1:
+            s["cnt"] = s["cnt"][(hsh(np.load(a.cache / f"b{s['i']}.npz")["keys"]) % np.uint64(a.sample)) == 0]
+    nrun = np.zeros(NR, np.int64); nmask = np.zeros(NR, np.uint8); ns = np.full(NR, 1 << 30)
+    for j in range(len(steps) - 1, -1, -1):
+        s = steps[j]; r = s["rid"]
+        solo = s["n"] == 1
+        cont = solo & (nmask[r] == s["m"]) & (ns[r] - j <= W)
+        s["run"] = np.where(solo, 1 + np.where(cont, nrun[r], 0), 0)
+        nrun[r] = s["run"]; nmask[r] = s["m"]; ns[r] = j
+    holder = np.full(NR, -1, np.int64)
+    P = G
+    out = []
+    st = dict(bag_uses=0, local_uses=0, exchanges=0, promoted=0, recalled=0, pool_rows=0, lookups=0, local_lookups=0, resident=0)
+    for s in steps[:S]:
+        r, bits, n = s["rid"], s["bits"], s["n"]
+        m = msz[s["k"] >> a.row_shift]
+        k = np.ones(len(r)) if dedup else np.maximum(s["cnt"] / n, 1.0)      # lookups per using GPU
+        h = holder[r]
+        g1 = bits.argmax(1)
+        solo = n == 1
+        hit = solo & (h == g1)
+        rec = (h >= 0) & ~hit
+        F = np.zeros((4, G + 1, G + 1))
+        c = np.bincount(h[rec], weights=m[rec], minlength=G)
+        F[0, :G, P] += c * B["data"]; F[0, P, :G] += np.bincount(h[rec], minlength=G) * B["ctl"]
+        holder[r[rec]] = -1
+        pro = ~hit & solo & promote & (s["run"] * k > m)
+        c = np.bincount(g1[pro], weights=m[pro], minlength=G)
+        F[0, P, :G] += c * B["data"]; F[0, :G, P] += np.bincount(g1[pro], minlength=G) * B["req"]
+        holder[r[pro]] = g1[pro]
+        ex = ~hit & ~pro
+        for g in range(G):
+            x = ex & bits[:, g]
+            v = float(k[x].sum())
+            F[1, g, P] += float((k[x] * m[x]).sum()) * 8.0; F[1, P, g] += v * B["data"]
+            F[2, g, P] += v * B["data"]
+            st["exchanges"] += v
+            st["pool_rows"] += float((k[x] * m[x]).sum())
+        st["bag_uses"] += float((k[:, None] * bits).sum()); st["local_uses"] += float(k[hit | pro].sum())
+        st["lookups"] += float(((k * m)[:, None] * bits).sum()); st["local_lookups"] += float((k * m)[hit | pro].sum())
+        st["promoted"] += int(pro.sum()); st["recalled"] += int(rec.sum())
+        held = holder >= 0
+        if held.any():
+            mm = msz[allk[held] >> a.row_shift]
+            st["resident"] = max(st["resident"], int(np.bincount(holder[held], weights=mm, minlength=G).max()))
+        out.append(F)
+    return out, st
+
+
 def pool_flows(a, B, mode, keep, phys):
     """unc_agg / comm, optionally with the software keep schedule."""
     G, S = a.gpus, a.steps
@@ -377,7 +451,10 @@ def byte_model(a, fabric):
 
 def run(a, design):
     phys = a.bytes == "phys"
-    if design.startswith("nmp"):
+    if design.startswith("hyb"):
+        flows, st = hybrid_flows(a, byte_model(a, "pool"), "dedup" in design, "nopromo" not in design)
+        fab = Fabric(a.gpus, a.gpu_bw, a.pool_bw, a.lat_us)
+    elif design.startswith("nmp"):
         flows, st = pooled_flows(a, byte_model(a, "pool"), design.endswith("_dedup"), to_pool=True)
         fab = Fabric(a.gpus, a.gpu_bw, a.pool_bw, a.lat_us)
     elif design.startswith("pooled"):

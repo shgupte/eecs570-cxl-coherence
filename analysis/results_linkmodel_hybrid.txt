@@ -1,0 +1,36 @@
+## d1 ports=2
+design,rp,rh,w1,w2,step,crit,MB,stats
+hyb_nopromo,0.00,8634.14,8634.14,0.00,17268.28,17268.28,2280.48,bag_uses=1595040 local_uses=0 exchanges=1595040 promoted=0 recalled=0 pool_rows=13118501 lookups=13118501 local_lookups=0 resident=0
+hyb,4.79,8626.39,8626.39,0.00,17257.57,17252.78,2279.62,bag_uses=1595040 local_uses=1424 exchanges=1593616 promoted=654 recalled=475 pool_rows=13116643 lookups=13118501 local_lookups=1858 resident=497
+hyb_nopromo_dedup,0.00,1592.56,1592.56,0.00,3185.12,3185.12,434.58,bag_uses=298484 local_uses=0 exchanges=298484 promoted=0 recalled=0 pool_rows=4240812 lookups=4240812 local_lookups=0 resident=0
+hyb_dedup,2.03,1589.27,1589.27,0.00,3180.56,3178.53,434.19,bag_uses=298484 local_uses=591 exchanges=297893 promoted=307 recalled=180 pool_rows=4240116 lookups=4240812 local_lookups=695 resident=305
+## d1 ports=8
+design,rp,rh,w1,w2,step,crit,MB,stats
+hyb_nopromo,0.00,2171.64,2171.64,0.00,4343.27,4343.27,2280.48,bag_uses=1595040 local_uses=0 exchanges=1595040 promoted=0 recalled=0 pool_rows=13118501 lookups=13118501 local_lookups=0 resident=0
+hyb,1.58,2169.39,2169.39,0.00,4340.36,4338.78,2279.62,bag_uses=1595040 local_uses=1424 exchanges=1593616 promoted=654 recalled=475 pool_rows=13116643 lookups=13118501 local_lookups=1858 resident=497
+hyb_nopromo_dedup,0.00,408.78,408.78,0.00,817.57,817.57,434.58,bag_uses=298484 local_uses=0 exchanges=298484 promoted=0 recalled=0 pool_rows=4240812 lookups=4240812 local_lookups=0 resident=0
+hyb_dedup,0.67,407.91,407.91,0.00,816.50,815.82,434.19,bag_uses=298484 local_uses=591 exchanges=297893 promoted=307 recalled=180 pool_rows=4240116 lookups=4240812 local_lookups=695 resident=305
+## pl_aff2 ports=2
+design,rp,rh,w1,w2,step,crit,MB,stats
+hyb_nopromo,0.00,8644.93,8644.93,0.00,17289.87,17289.87,2280.48,bag_uses=1595040 local_uses=0 exchanges=1595040 promoted=0 recalled=0 pool_rows=13118501 lookups=13118501 local_lookups=0 resident=0
+hyb,146.18,7911.50,7911.50,0.00,15969.18,15823.00,2104.28,bag_uses=1595040 local_uses=133568 exchanges=1461472 promoted=8701 recalled=2692 pool_rows=11199211 lookups=13118501 local_lookups=1919290 resident=94528
+hyb_nopromo_dedup,0.00,1161.34,1161.34,0.00,2322.67,2322.67,315.22,bag_uses=216165 local_uses=0 exchanges=216165 promoted=0 recalled=0 pool_rows=3087181 lookups=3087181 local_lookups=0 resident=0
+hyb_dedup,50.16,1007.50,1007.50,0.00,2065.16,2015.00,284.66,bag_uses=216165 local_uses=27400 exchanges=188765 promoted=6047 recalled=1319 pool_rows=2957830 lookups=3087181 local_lookups=129351 resident=43192
+## pl_aff2 ports=8
+design,rp,rh,w1,w2,step,crit,MB,stats
+hyb_nopromo,0.00,2257.80,2257.80,0.00,4515.60,4515.60,2280.48,bag_uses=1595040 local_uses=0 exchanges=1595040 promoted=0 recalled=0 pool_rows=13118501 lookups=13118501 local_lookups=0 resident=0
+hyb,56.25,2048.17,2048.17,0.00,4152.59,4096.34,2104.28,bag_uses=1595040 local_uses=133568 exchanges=1461472 promoted=8701 recalled=2692 pool_rows=11199211 lookups=13118501 local_lookups=1919290 resident=94528
+hyb_nopromo_dedup,0.00,325.06,325.06,0.00,650.12,650.12,315.22,bag_uses=216165 local_uses=0 exchanges=216165 promoted=0 recalled=0 pool_rows=3087181 lookups=3087181 local_lookups=0 resident=0
+hyb_dedup,16.48,278.85,278.85,0.00,574.18,557.71,284.66,bag_uses=216165 local_uses=27400 exchanges=188765 promoted=6047 recalled=1319 pool_rows=2957830 lookups=3087181 local_lookups=129351 resident=43192
+## pl_lag8 ports=2
+design,rp,rh,w1,w2,step,crit,MB,stats
+hyb_nopromo,0.00,8650.10,8650.10,0.00,17300.20,17300.20,2280.48,bag_uses=1595040 local_uses=0 exchanges=1595040 promoted=0 recalled=0 pool_rows=13118501 lookups=13118501 local_lookups=0 resident=0
+hyb,149.05,8218.48,8218.48,0.00,16586.02,16436.96,2201.72,bag_uses=1595040 local_uses=81158 exchanges=1513882 promoted=7794 recalled=5709 pool_rows=12352144 lookups=13118501 local_lookups=766357 resident=15817
+hyb_nopromo_dedup,0.00,1188.40,1188.40,0.00,2376.81,2376.81,323.55,bag_uses=217930 local_uses=0 exchanges=217930 promoted=0 recalled=0 pool_rows=3131970 lookups=3131970 local_lookups=0 resident=0
+hyb_dedup,19.98,1168.15,1168.15,0.00,2356.28,2336.31,321.52,bag_uses=217930 local_uses=3151 exchanges=214778 promoted=1560 recalled=430 pool_rows=3124148 lookups=3131970 local_lookups=7822 resident=5994
+## pl_lag8 ports=8
+design,rp,rh,w1,w2,step,crit,MB,stats
+hyb_nopromo,0.00,2236.01,2236.01,0.00,4472.01,4472.01,2280.48,bag_uses=1595040 local_uses=0 exchanges=1595040 promoted=0 recalled=0 pool_rows=13118501 lookups=13118501 local_lookups=0 resident=0
+hyb,48.42,2101.93,2101.93,0.00,4252.28,4203.86,2201.72,bag_uses=1595040 local_uses=81158 exchanges=1513882 promoted=7794 recalled=5709 pool_rows=12352144 lookups=13118501 local_lookups=766357 resident=15817
+hyb_nopromo_dedup,0.00,321.03,321.03,0.00,642.06,642.06,323.55,bag_uses=217930 local_uses=0 exchanges=217930 promoted=0 recalled=0 pool_rows=3131970 lookups=3131970 local_lookups=0 resident=0
+hyb_dedup,6.39,315.55,315.55,0.00,637.49,631.11,321.52,bag_uses=217930 local_uses=3151 exchanges=214778 promoted=1560 recalled=430 pool_rows=3124148 lookups=3131970 local_lookups=7822 resident=5994
