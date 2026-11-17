@@ -12,24 +12,29 @@ colorlinks: true
 
 ## Summary
 
-We asked whether 8 GPUs training a recommendation model (DLRM) can keep their
-embedding tables in a shared CXL memory pool, and how that compares with what
-industry does today: tables sharded across the GPUs and exchanged all-to-all.
+**Scope.** We study embedding tables held in a shared CXL memory pool for
+multi-GPU recommendation (DLRM) training, and propose an optimization of
+that pool: coherent caching of rows at the GPUs (MESI), merged gradient
+updates for shared rows (deltas), and sample placement. We compare against
+other pooled designs. Sharded all-to-all over NVLink and host memory are
+shown as reference points; we do not claim to beat them.
 
 - **Against an uncacheable (CLAY-style) pool, our design is 2.2 to 3.2 times
-  faster.** This holds in every experiment.
-- **Against sharding, the answer depends on the links.** Inside one machine,
-  sharding over NVLink is 3.3 times faster than our best pool design. Across
-  machines on 25 GB/s network cards, our pool design is 3.6 times faster than
-  sharding.
-- **The pool needs about 8 ports.** With one port it loses to every sharded
-  design except the unoptimized one.
-- **A software schedule nearly matches the hardware protocol.** The protocol
-  change is ahead by 18% at 8 ports in the full-scale model and ties in gem5.
-
-The claim we can defend is: *if* embedding memory is pooled over CXL for
-capacity or cost, these changes make it about twice as fast, and competitive
-with sharding once GPUs are spread across machines. We did not measure cost.
+  faster** on embedding traffic for one-ID-per-feature data, and 1.2 to 2.3
+  times faster for multi-hot data, depending on the GPU cache size.
+- **Against a pool that pools bags at the memory (as ReCXL and RecDM do), the
+  two are complementary.** With one ID per feature our design is about 2
+  times faster, because cached private rows need no transfer at all. With
+  large bags the near-memory pool is 2 to 16 times faster, because it sends
+  one vector per bag where we fetch every row.
+- **The pool needs about 8 ports.** With one port every pooled design is
+  several times slower.
+- **A software schedule comes close to the hardware protocol** (within 18%),
+  because the data loader knows future batches.
+- **Reference points:** sharding over NVLink is 3.3 times faster than our
+  pool on embedding traffic (7% end to end with one ID per feature), and host
+  memory with the same scheduling ties it. Pooling is 4 to 10 times cheaper
+  per GB than GPU memory; host DRAM is as cheap.
 
 ## The design
 
@@ -247,6 +252,46 @@ PyTorch; tuned frameworks are faster.
   host design keeps 16 to 32 cores busy moving rows. This assumes the pool
   itself serves 250 to 500 GB/s, which we did not measure.
 
+### 9. Multi-hot features and other pooled designs
+
+Production models look up many IDs per feature. We expanded the Criteo
+batches with the MLPerf DLRM-DCNv2 multi-hot recipe (214 lookups per sample
+instead of 26; 2.8 million rows per step instead of 165,000) and added a
+near-memory pool to the link-level model: the pool sums each bag and returns
+one vector, and one gradient vector per bag goes back. This is the approach
+of ReCXL (ISCA 2024, one GPU) and RecDM (TACO 2026, several GPUs), modelled
+here without any limit on the pool's internal memory bandwidth.
+
+Embedding traffic per step, pool with 8 ports, full batch:
+
+| Pooled design | One ID per feature | Multi-hot |
+|---|---|---|
+| Uncacheable (CLAY-style) | 0.67 ms | 15.7 ms |
+| Software scheduled sharing | 0.46 ms | 10.3 to 14.4 ms |
+| Ours: MESI + deltas, unlimited GPU cache | 0.38 ms | 6.8 to 8.8 ms |
+| Ours: MESI + deltas, 0.5 to 2 GB GPU cache | 0.38 ms | 11.0 to 12.6 ms |
+| Near-memory pooling, one exchange per lookup | 4.35 ms | 4.35 ms |
+| Near-memory pooling, identical bags deduplicated | 0.81 ms | 0.81 ms |
+| Reference: sharded, pooled vectors over NVLink | 0.78 ms | 0.80 ms |
+
+- **Coherent caching wins when bags are small.** With one ID per feature
+  there is nothing to pool, and a cached private row costs no traffic.
+- **Near-memory pooling wins when bags are large.** Its traffic does not grow
+  with bag size; ours grows with the number of rows.
+- **The pool's own memory is the limit for near-memory designs.** It must
+  read and update 2.7 to 13 million rows per step, which needs 0.3 to 1.5
+  TB/s inside the pool. ReCXL and RecDM address this with processing in many
+  memory modules; we did not model it.
+- **Deltas against plain MESI.** With bulk transfers the delta mechanism is
+  1.14 times faster than plain MESI at 8 ports in gem5 and 10% slower at one
+  port; the link-level model shows no difference. Its value is correctness
+  without cache-to-cache forwarding more than speed.
+- **Checks that did not pan out.** Keeping whole bags on GPUs in front of a
+  near-memory pool gained at most 1.13 times. Moving row ownership between
+  GPUs in a sharded system gained nothing against pooled all-to-all.
+  Sharing one pool between training and serving has no accuracy benefit: a
+  serving model one minute behind the trainer loses 0.006% in log loss.
+
 ## How far to trust the link-level model
 
 The model computes the bytes each design sends over each link from the same
@@ -270,24 +315,26 @@ ordering of designs agrees in both tools except for near-ties.
 
 ## Claims
 
-**Supported by the evidence**
+**What we claim**
 
-- Given a CXL pool, placement plus MESI plus deltas is 2.2 to 3.2 times
-  faster than an uncacheable pool.
-- Deltas let MESI work on CXL without cache-to-cache forwarding.
+- For a CXL embedding pool, coherent caching with merged updates and sample
+  placement is 2.2 to 3.2 times faster than an uncacheable pool on embedding
+  traffic (one ID per feature), and 1.2 to 2.3 times faster on multi-hot
+  data.
+- Merged updates let MESI work on CXL, which has no cache-to-cache
+  forwarding.
 - Placement does not change training results.
-- The pool design beats sharding when GPUs are connected by 25 GB/s network
-  cards and the pool has at least 2 ports.
+- Coherent caching and near-memory pooling are complementary: the first
+  wins for small bags, the second for large ones.
 
-**Not supported**
+**What we do not claim**
 
-- "A CXL pool is faster than sharded all-to-all." Inside one NVLink machine
-  it is 3.3 times slower.
-- "The hardware protocol is needed." A software schedule is within 18% and
-  ties in gem5 at 8 ports.
-- "Pooling is the cheap option." It is 4 to 10 times cheaper than GPU
-  memory, but host DRAM costs the same or less, exists today, and ties the
-  pool on speed at equal memory-side bandwidth.
+- That a CXL pool beats sharded all-to-all. Over NVLink sharding is 3.3
+  times faster on embedding traffic.
+- That the hardware protocol is required. A software schedule is within 18%.
+- That pooling is the cheapest option. Host DRAM costs the same or less.
+- That our design beats ReCXL or RecDM. We modelled their approach, not
+  their systems, and on multi-hot data it is faster than ours.
 
 ## Limits
 
@@ -301,11 +348,13 @@ ordering of designs agrees in both tools except for near-ties.
 - One workload: Criteo, 8 GPUs, one ID per feature.
 - The protocol changes ran correctly on these traces but were not formally
   verified or stress-tested with random traffic.
-- Prior work (web search, not exhaustive): sample placement to cut embedding
-  transfers is published (Herald, NSDI'24); CXL for embedding training is
-  published (ReCXL, ISCA'24; TrainingCXL). We found no paper with MESI-style
-  caching plus merged gradient updates for a CXL pool shared by several
-  GPUs. That combination and its measurements are the new part.
+- Prior work: ReCXL (ISCA'24) and RecDM (TACO'26), both read in full, pool
+  bags at the memory and keep GPUs consistent in software; TrainingCXL
+  applies updates at the memory on one GPU; Herald (NSDI'24) places inputs
+  on workers. We found no paper with MESI-style caching plus merged gradient
+  updates for a CXL pool shared by several GPUs.
+- The multi-hot data is synthetic (MLPerf recipe); its extra rows are drawn
+  uniformly, so real bags may share more.
 - Prices are from secondary web sources; CXL module and switch prices are
   not public.
 
