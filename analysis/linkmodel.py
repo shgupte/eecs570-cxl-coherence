@@ -27,6 +27,8 @@ Designs
   with --pool-bulk, comm / comm_keep are the host-DRAM hybrid (rows in server
   memory, GPUs fetch and return gradients over PCIe; _keep = GPU-side cache
   driven by lookahead, as in BagPipe / ScratchPipe)
+  mesi_pm                         plain MESI, every transfer through the pool (CXL has
+                                  no cache-to-cache forwarding)
   mesi_comm                       MESI through the pool + commutative updates
                                   (Downgrade leaves no copy at the old owner;
                                   --stale reproduces the first protocol
@@ -229,7 +231,7 @@ def pool_flows(a, B, mode, keep, phys):
     return out, stats
 
 
-def mesi_flows(a, B, stale):
+def mesi_flows(a, B, stale, deltas=True):
     """MESI through the pool with commutative updates. A row is either held
     modified by one GPU (its only reader last time) or lives in the pool."""
     G, S = a.gpus, a.steps
@@ -278,6 +280,7 @@ def mesi_flows(a, B, stale):
             y = (h < 0) & (n >= 2) & x
             c = np.bincount(g1[y], minlength=G).astype(float)
             F[ph, P, :G] += c * B["ctl"]; F[ph, :G, P] += c * B["ctl"]
+        order = np.cumsum(bits, 1)                      # position of GPU g among the row's readers
         for g in range(G):
             mine = bits[:, g] & ~hit_only
             own_hit = mine & (h == g)
@@ -291,8 +294,18 @@ def mesi_flows(a, B, stale):
             for ph in (0, 1):
                 c = float((rd & (hz == bool(ph))).sum())
                 F[ph, g, P] += c * B["req"]; F[ph, P, g] += c * B["data"]
-            c = float((bits[:, g] & shared).sum())
-            F[2, g, P] += c * B["data"]; F[2, P, g] += c * B["ack"]
+            if deltas:
+                c = float((bits[:, g] & shared).sum())
+                F[2, g, P] += c * B["data"]; F[2, P, g] += c * B["ack"]
+            else:
+                # plain MESI through the pool: the readers of a shared row take it in turn
+                # (GPU order); every writer but the first gets the row from the previous
+                # one through the pool, the last one keeps it modified
+                mine_s = bits[:, g] & shared
+                c = float(mine_s.sum())
+                nxt_ = float((mine_s & (order[:, g] < n)).sum())    # hands the row on
+                prv_ = float((mine_s & (order[:, g] > 1)).sum())    # receives it
+                F[2, g, P] += nxt_ * B["data"] + c * B["ctl"]; F[2, P, g] += prv_ * B["data"] + c * B["ctl"]
             stats["fetch"] += int(rd.sum()); stats["deltas"] += int(c)
             stats["hits"] += int((bits[:, g] & hit_only).sum() + own_hit.sum())
         if stale:
@@ -300,7 +313,7 @@ def mesi_flows(a, B, stale):
             stale_at[h[z], rid[z]] = j
         stats["recalls"] += int(recall.sum())
         holder[rid[fresh]] = g1[fresh]
-        holder[rid[shared]] = -1
+        holder[rid[shared]] = -1 if deltas else (G - 1 - bits[shared][:, ::-1].argmax(1))
         last[rid] = j
         stats["resident"] = max(stats["resident"], int(np.bincount(holder[holder >= 0], minlength=G).max()))
         out.append(F)
@@ -326,7 +339,7 @@ def run(a, design):
     else:
         B = byte_model(a, "pool")
         if design.startswith("mesi"):
-            flows, st = mesi_flows(a, B, a.stale)
+            flows, st = mesi_flows(a, B, a.stale, deltas=design != "mesi_pm")
         else:
             flows, st = pool_flows(a, B, design.split("_keep")[0], design.endswith("_keep"), phys)
         fab = Fabric(a.gpus, a.gpu_bw, a.pool_bw, a.lat_us)

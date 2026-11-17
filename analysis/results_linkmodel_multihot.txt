@@ -1,0 +1,57 @@
+## d1
+design,rp,rh,w1,w2,step,crit,MB,stats
+shard,23.55,34.17,56.17,0.00,113.88,90.33,263.23,moved=0 fetch=260061 grads=260061
+shard_mig,23.78,39.58,32.32,0.00,95.68,71.91,199.14,moved=126576 fetch=260137 grads=133561
+unc_agg,167.94,242.12,178.54,262.04,850.64,682.70,575.85,fetch=297189 stores=297189 kept=0
+comm_keep,162.11,236.54,398.17,0.00,796.82,634.71,460.00,fetch=290388 stores=291563 kept=292
+mesi_pm,167.66,251.70,295.54,0.00,714.89,547.24,514.78,fetch=273045 deltas=213372 recalls=73303 hits=24144 stale_hits=0 evict=0 resident=148006
+mesi_comm,169.58,275.31,272.13,0.00,717.02,547.44,423.52,fetch=292142 deltas=197693 recalls=26019 hits=5047 stale_hits=0 evict=0 resident=107489
+## pl_aff2
+design,rp,rh,w1,w2,step,crit,MB,stats
+shard,23.72,22.29,44.63,0.00,90.65,66.93,192.43,moved=0 fetch=189168 grads=189168
+shard_mig,17.69,16.24,14.22,0.00,48.15,30.46,93.86,moved=84940 fetch=137450 grads=52510
+unc_agg,169.44,158.74,76.68,261.81,666.67,497.23,385.65,fetch=216139 stores=216139 kept=0
+comm_keep,129.85,107.62,226.99,0.00,464.46,334.60,247.90,fetch=167860 stores=154024 kept=35166
+mesi_pm,131.00,115.78,135.93,0.00,382.70,251.71,237.73,fetch=156628 deltas=88273 recalls=32697 hits=59511 stale_hits=0 evict=0 resident=147038
+mesi_comm,133.60,125.72,122.16,0.00,381.48,247.88,208.31,fetch=170088 deltas=82166 recalls=11364 hits=46050 stale_hits=0 evict=0 resident=137708
+## mh_d1
+design,rp,rh,w1,w2,step,crit,MB,stats
+shard,418.31,394.22,792.08,0.00,1604.61,1186.30,3694.10,moved=0 fetch=3617982 grads=3617982
+shard_mig,420.32,440.47,343.81,0.00,1204.60,784.28,2592.59,moved=2163205 fetch=3618821 grads=1455616
+unc_agg,2979.06,2808.26,1975.59,4132.64,11895.55,8916.49,7763.01,fetch=4134941 stores=4134941 kept=0
+comm_keep,2861.51,2724.28,5564.16,0.00,11149.95,8288.44,6398.97,fetch=4017756 stores=4016540 kept=5647
+mesi_pm,2990.14,2920.21,3455.53,0.00,9365.89,6375.75,6756.94,fetch=3832802 deltas=2657675 recalls=1103993 hits=302139 stale_hits=0 evict=0 resident=2455794
+mesi_comm,3019.94,3127.45,3418.07,0.00,9565.45,6545.51,5790.97,fetch=4047160 deltas=2402280 recalls=483430 hits=87781 stale_hits=0 evict=0 resident=1822926
+## mh_aff
+design,rp,rh,w1,w2,step,crit,MB,stats
+shard,840.88,246.80,1080.31,0.00,2168.00,1327.11,2652.97,moved=0 fetch=2587695 grads=2587695
+shard_mig,661.90,98.52,82.78,0.00,843.20,181.30,922.09,moved=1341886 fetch=1619566 grads=277680
+unc_agg,6045.15,1762.95,459.27,7437.19,15704.56,9659.41,4967.59,fetch=2957006 stores=2957006 kept=0
+comm_keep,4859.16,646.74,4816.24,0.00,10322.14,5462.98,2756.44,fetch=2000581 stores=1634135 kept=798872
+mesi_pm,4901.20,602.28,887.90,0.00,6391.38,1490.17,2170.96,fetch=1945109 deltas=557659 recalls=256260 hits=1011896 stale_hits=0 evict=0 resident=4843339
+mesi_comm,4940.67,703.51,1127.96,0.00,6772.13,1831.46,2060.37,fetch=2018719 deltas=509143 recalls=139857 hits=938287 stale_hits=0 evict=0 resident=4508262
+## mh_aff cache_rows=0
+design,rp,rh,w1,w2,step,crit,MB,stats
+mesi_pm,6169.24,701.69,1118.01,0.00,7988.94,1819.70,2115.90,fetch=1688947 deltas=641741 recalls=347029 hits=1274796 stale_hits=0 evict=0 resident=12620801
+mesi_comm,6276.30,823.56,1685.25,0.00,8785.12,2508.82,2011.35,fetch=1784562 deltas=567838 recalls=198334 hits=1179181 stale_hits=0 evict=0 resident=11520469
+## mh_aff cache_rows=1000000
+design,rp,rh,w1,w2,step,crit,MB,stats
+mesi_pm,10742.72,1382.85,989.60,0.00,13115.18,2372.46,3763.51,fetch=2157674 deltas=501240 recalls=183849 hits=806069 stale_hits=0 evict=1521500 resident=967345
+mesi_comm,10026.15,1422.75,1129.92,0.00,12578.83,2552.68,3529.38,fetch=2203120 deltas=473165 recalls=92674 hits=760623 stale_hits=0 evict=1430731 resident=898068
+## mh_aff cache_rows=2000000
+design,rp,rh,w1,w2,step,crit,MB,stats
+mesi_pm,9603.34,701.69,1053.56,0.00,11358.59,1755.25,3245.86,fetch=1887266 deltas=570440 recalls=270740 hits=1076478 stale_hits=0 evict=943341 resident=1860905
+mesi_comm,9415.92,823.18,1438.53,0.00,11677.64,2261.71,3018.92,fetch=1953213 deltas=520685 recalls=148076 hits=1010531 stale_hits=0 evict=853981 resident=1816297
+## mh_aff cache_rows=4000000
+design,rp,rh,w1,w2,step,crit,MB,stats
+mesi_pm,8673.97,701.69,1114.37,0.00,10490.03,1816.06,2741.27,fetch=1760620 deltas=619146 recalls=323020 hits=1203124 stale_hits=0 evict=446796 resident=3779369
+mesi_comm,8450.83,824.94,1697.70,0.00,10973.47,2522.64,2535.46,fetch=1842114 deltas=554369 recalls=183950 hits=1121630 stale_hits=0 evict=374861 resident=3753691
+## mh_aff cache_rows=500000
+design,rp,rh,w1,w2,step,crit,MB,stats
+mesi_pm,10874.52,1533.33,945.62,0.00,13353.47,2478.95,4491.94,fetch=2623153 deltas=444656 recalls=92163 hits=340590 stale_hits=0 evict=2157785 resident=955696
+mesi_comm,10267.13,1538.74,911.64,0.00,12717.52,2450.38,4236.02,fetch=2640723 deltas=433425 recalls=38770 hits=323020 stale_hits=0 evict=2054163 resident=899925
+## mh_aff software, 28 steps
+design,rp,rh,w1,w2,step,crit,MB,stats
+comm_keep,6070.52,755.43,7577.05,0.00,14402.99,8332.47,2729.46,fetch=1750004 stores=1738043 kept=896422
+shard,1143.15,228.57,1348.79,0.00,2720.50,1577.35,2681.22,moved=0 fetch=2593631 grads=2593631
+shard_mig,852.44,115.84,92.19,0.00,1060.47,208.03,852.62,moved=1186950 fetch=1469761 grads=282811

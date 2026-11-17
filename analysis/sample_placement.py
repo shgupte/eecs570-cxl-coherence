@@ -50,6 +50,35 @@ def assign(rid, valid, G, cap, w, lam, prior=None, bonus=None, beta=0.0):
     return out, cur
 
 
+# MLPerf DLRM-DCNv2 synthetic multi-hot (facebookresearch/dlrm torchrec_dlrm/multi_hot.py,
+# uniform): every one-hot id maps to a fixed bag = the id itself and size-1 rows drawn
+# uniformly from its table. The reference builds a random table per feature; here the
+# extra rows are a hash of (table, id, slot), which is the same distribution.
+MH_SIZES = [3, 2, 1, 2, 6, 1, 1, 1, 1, 7, 3, 8, 1, 6, 9, 5, 1, 1, 1, 12, 100, 27, 10, 3, 1, 1]
+MH_ROWS = [40000000, 39060, 17295, 7424, 20265, 3, 7122, 1543, 63, 40000000, 3067956, 405282, 10, 2209,
+           11938, 155, 4, 976, 14, 40000000, 40000000, 40000000, 590152, 12973, 108, 36]
+
+
+def multihot(K, valid, row_shift):
+    """K (B,T) one-hot keys -> (B, sum(MH_SIZES)) multi-hot keys, valid mask."""
+    B, T = K.shape
+    cols, vals = [], []
+    with np.errstate(over="ignore"):
+        for t in range(T):
+            n = np.uint64(MH_ROWS[t])
+            base = (K[:, t] & ((1 << row_shift) - 1)).astype(np.uint64) % n
+            for j in range(MH_SIZES[t]):
+                if j == 0:
+                    r = base
+                else:
+                    x = base * np.uint64(0x9E3779B97F4A7C15) + np.uint64(j) * np.uint64(0xBF58476D1CE4E5B9) \
+                        + np.uint64(t) * np.uint64(0x94D049BB133111EB)
+                    x ^= x >> np.uint64(31); x *= np.uint64(0xD6E8FEB86659FD93); x ^= x >> np.uint64(32)
+                    r = x % n
+                cols.append((np.int64(t) << row_shift) | r.astype(np.int64)); vals.append(valid[:, t])
+    return np.stack(cols, 1), np.stack(vals, 1)
+
+
 def load_c():
     """Compile placer.c next to this file (once) and return its assign()."""
     src = Path(__file__).with_name("placer.c"); so = src.with_suffix(".so")
@@ -91,6 +120,8 @@ def main():
     ap.add_argument("--owner", type=float, default=0.0,
                     help="--fast only: bonus per row whose static owner (row-wise blocks, as in "
                          "step_traffic.py) is the GPU: placement for a sharded all-to-all system")
+    ap.add_argument("--multihot", action="store_true",
+                    help="expand every one-hot id to the MLPerf DLRM-DCNv2 multi-hot bag (214 lookups per sample)")
     ap.add_argument("--lag", type=int, default=1,
                     help="affinity: the bonus uses the sole-updater table as of --lag steps earlier "
                          "(a placer pipelined over --lag cores cannot see the steps still in flight)")
@@ -118,8 +149,11 @@ def main():
         K = np.full((T, B), -1, np.int64)
         K[valid] = (np.repeat(np.arange(T, dtype=np.int64), valid.sum(1)) << a.row_shift) | d["indices"]
         K, valid = K.T.copy(), valid.T.copy()
+        if a.multihot:
+            K, valid = multihot(K, valid, a.row_shift)
+        Tc = K.shape[1]
         keys, inv, counts = np.unique(K[valid], return_inverse=True, return_counts=True)
-        rid = np.zeros((B, T), np.int64); rid[valid] = inv
+        rid = np.zeros((B, Tc), np.int64); rid[valid] = inv
         cap = B // G
         if a.policy == "contig":
             gpu = (np.arange(B) // cap).astype(np.int8)
@@ -147,7 +181,7 @@ def main():
                 for _ in range(a.passes if a.policy != "greedy" else 0):
                     gpu, cur = assign(rid, valid, G, cap, w, a.lam, prior=cur, bonus=bonus, beta=a.beta)
         mask = np.zeros(len(keys), np.uint8)
-        np.bitwise_or.at(mask, rid[valid], (1 << gpu.astype(np.uint8))[:, None].repeat(T, 1)[valid])
+        np.bitwise_or.at(mask, rid[valid], (1 << gpu.astype(np.uint8))[:, None].repeat(Tc, 1)[valid])
         rowmax = np.zeros(T, np.int64)
         np.maximum.at(rowmax, keys >> a.row_shift, keys & ((1 << a.row_shift) - 1))
         np.savez(a.out / f"b{i}.npz", keys=keys, counts=counts, mask=mask, rowmax=rowmax,
