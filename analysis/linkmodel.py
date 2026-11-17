@@ -24,6 +24,9 @@ Bytes per row
 Designs
   shard_sq, shard, shard_mig      gen_shard_traces.py
   unc_agg, comm (+ _keep)         gen_step_traces.py
+  with --pool-bulk, comm / comm_keep are the host-DRAM hybrid (rows in server
+  memory, GPUs fetch and return gradients over PCIe; _keep = GPU-side cache
+  driven by lookahead, as in BagPipe / ScratchPipe)
   mesi_comm                       MESI through the pool + commutative updates
                                   (Downgrade leaves no copy at the old owner;
                                   --stale reproduces the first protocol
@@ -310,6 +313,8 @@ def byte_model(a, fabric):
     L = a.row_bytes / 64.0
     if fabric == "shard":
         return dict(req=8.0, data=a.row_bytes * (1 + a.nv_overhead), ack=0.0, ctl=8.0)
+    if a.pool_bulk:     # host DRAM behind the GPUs' PCIe links: bulk DMA, no per-line messages
+        return dict(req=8.0, data=a.row_bytes * (1 + a.pci_overhead), ack=0.0, ctl=8.0)
     return dict(req=L * a.cxl_req, data=L * a.cxl_data, ack=L * a.cxl_ack, ctl=L * a.cxl_req)
 
 
@@ -354,6 +359,10 @@ def parser():
     ap.add_argument("--cxl-req", type=float, default=8.0, help="wire bytes of a request per 64 B line")
     ap.add_argument("--cxl-data", type=float, default=72.0, help="wire bytes of a data message per 64 B line")
     ap.add_argument("--cxl-ack", type=float, default=8.0)
+    ap.add_argument("--pool-bulk", action="store_true",
+                    help="pool designs move rows as bulk transfers (host-DRAM hybrid over PCIe): "
+                         "8 B index, row payload x (1 + --pci-overhead), no per-row ack")
+    ap.add_argument("--pci-overhead", type=float, default=0.10)
     ap.add_argument("--lat-us", type=float, default=0.0, help="added per non-empty phase")
     ap.add_argument("--cache-rows", type=int, default=0, help="mesi: rows a GPU can hold (0 = unlimited)")
     ap.add_argument("--stale", action="store_true")

@@ -58,7 +58,7 @@ write them back.
 | Whole-step timing of 4 sharded and 9 pool designs, 1 to 8 pool ports | gem5 (SimCXL, Ruby protocol with our changes) | 112 runs |
 | Sensitivity: port bandwidth, hop latency, second step window, second Criteo day, 8x scale | gem5 | 80 runs |
 | Bulk transfers (large request window) for all main designs; equal total link bandwidth | gem5 | 86 runs |
-| Full-batch step time with real NVLink, network-card and CXL figures | Link-level model (`linkmodel.py`) | 40 runs |
+| Full-batch step time with real NVLink, network-card and CXL figures; host-memory hybrid | Link-level model (`linkmodel.py`) | 50 runs |
 | GPU cache size needed by the MESI design | Link-level model | 6 runs |
 | Does placement change training? | Real DLRM training, 40 steps | 1 run |
 | Placement speed and the cost of running it as a pipeline | Placer in C, link-level model | 5 runs |
@@ -165,6 +165,50 @@ instead of 1.9 times.
   (sharded dedup 202 µs, + placement 151, + migration 89; pool baseline 260,
   software 89.5, MESI + deltas 82.7).
 
+### 7. Host memory and cost
+
+Production systems already keep tables that do not fit in GPU memory in the
+server's own DRAM. We added that design to the link-level model: rows in host
+memory, fetched and updated over each GPU's PCIe link as bulk transfers. A
+GPU's CXL port and its PCIe port are the same physical link (63 GB/s).
+
+| Design | Memory side serves | Time per step (µs) |
+|---|---|---|
+| Host memory, as deployed (no placement, no GPU cache) | 504 GB/s | 676 |
+| Host memory + placement + lookahead GPU cache | 504 GB/s | 385 |
+| Host memory + placement + lookahead GPU cache | 200 GB/s | 880 |
+| Host memory + placement + lookahead GPU cache | 100 GB/s | 1,734 |
+| CXL pool, MESI + deltas, 8 ports | 504 GB/s | 381 |
+| CXL pool, MESI + deltas, 4 ports | 252 GB/s | 687 |
+
+- **At equal memory-side bandwidth the pool and host memory tie** (381
+  against 385 µs). The pool has no speed advantage inside one server.
+- **The pool is ahead only if it serves rows faster than the host can.**
+  Published host platforms read about 77 to 110 GB/s. Measured CXL devices
+  deliver about half their theoretical bandwidth, which would put the pool
+  near the 4-port row. On those figures the pool is 1.3 to 2.5 times faster
+  on embedding traffic, which is 4 to 20% of a whole training step.
+
+Cost of holding 2 TB of embedding tables for 8 GPUs (prices from November
+2026 web sources; several are secondary or estimates):
+
+| Option | Memory price | Cost for 2 TB | Extra hardware |
+|---|---|---|---|
+| GPU memory (more H100s) | about $390/GB | about $780,000 | 17 more GPUs |
+| Host DRAM (DDR5 RDIMM) | about $40/GB | about $80,000 | none; one server holds up to 8 TB |
+| CXL pool | $40 to $100/GB (no public list price) | $80,000 to $200,000 | pooling chassis, about $12,000 (unverified quote) |
+
+- **Pooling is about 4 to 10 times cheaper than GPU memory**, but so is host
+  DRAM, with no switch and with hardware that exists today.
+- **DDR5 prices rose about tenfold in the last year** (about $4/GB in Q3
+  2025). Before the rise the gap to GPU memory was near 100 times.
+- **The cost argument is already published for host memory.** ScratchPipe
+  (ISCA'22) reports a lookahead GPU cache within 29 to 66% of all-in-GPU
+  speed at 4 times lower cost. BagPipe (SOSP'23) reports up to 5.6 times
+  over a host-memory baseline.
+- **Where a pool could still be cheaper:** tables above one server's 8 TB,
+  or memory shared by several servers. We did not model either.
+
 ## How far to trust the link-level model
 
 The model computes the bytes each design sends over each link from the same
@@ -203,9 +247,9 @@ ordering of designs agrees in both tools except for near-ties.
   it is 3.3 times slower.
 - "The hardware protocol is needed." A software schedule is within 18% and
   ties in gem5 at 8 ports.
-- "Pooling is cheaper." Cost was not measured. Production systems already
-  hold overflow tables in host DRAM, which is as cheap as pool memory; that
-  design was not modelled and is the most important missing baseline.
+- "Pooling is the cheap option." It is 4 to 10 times cheaper than GPU
+  memory, but host DRAM costs the same or less, exists today, and ties the
+  pool on speed at equal memory-side bandwidth.
 
 ## Limits
 
@@ -218,9 +262,13 @@ ordering of designs agrees in both tools except for near-ties.
 - One workload: Criteo, 8 GPUs, one ID per feature.
 - The protocol changes ran correctly on these traces but were not formally
   verified or stress-tested with random traffic.
-- Novelty was judged from memory, without a literature search. The individual
-  mechanisms are known (MESI on CXL, COUP-style commutative updates,
-  affinity placement); the combination and the measurements are ours.
+- Prior work (web search, not exhaustive): sample placement to cut embedding
+  transfers is published (Herald, NSDI'24); CXL for embedding training is
+  published (ReCXL, ISCA'24; TrainingCXL). We found no paper with MESI-style
+  caching plus merged gradient updates for a CXL pool shared by several
+  GPUs. That combination and its measurements are the new part.
+- Prices are from secondary web sources; CXL module and switch prices are
+  not public.
 
 ## Files
 
