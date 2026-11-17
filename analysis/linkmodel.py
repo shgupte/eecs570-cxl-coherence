@@ -22,7 +22,8 @@ Bytes per row
   phys  sharded: 8 B index, row payload, no per-row ack (bulk messages);
         pool: per 64 B line --cxl-req / --cxl-data / --cxl-ack bytes
 Designs
-  shard_sq, shard, shard_mig      gen_shard_traces.py
+  shard_sq, shard, shard_mig      gen_shard_traces.py (rows travel)
+  pooled, pooled_dedup            table-wise sharding, pooled vectors travel (see pooled_flows)
   unc_agg, comm (+ _keep)         gen_step_traces.py
   with --pool-bulk, comm / comm_keep are the host-DRAM hybrid (rows in server
   memory, GPUs fetch and return gradients over PCIe; _keep = GPU-side cache
@@ -170,6 +171,41 @@ def shard_flows(a, B, mode):
                 c = np.bincount(own[x], weights=cnt[x, g], minlength=G)
                 F[2, g, :G] += c * B["data"]; F[2, :G, g] += c * B["ack"]
                 stats["fetch"] += int(cnt[x, g].sum()); stats["grads"] += int(cnt[x, g].sum())
+        out.append(F)
+    return out, stats
+
+
+def pooled_flows(a, B, dedup):
+    """Sharded all-to-all as TorchRec / HugeCTR do it for pooled (multi-hot)
+    features: a table lives on one GPU (table-wise sharding); a GPU sends the
+    bag's indices to the owner, the owner looks up and sums the rows and
+    returns ONE pooled vector per bag; one gradient vector per bag goes back.
+    dedup: one exchange per distinct bag (= distinct one-hot id) per GPU.
+    Needs --batches (one-hot ids) and the cache's sample placement (gpu)."""
+    from sample_placement import MH_SIZES
+    G = a.gpus
+    out, stats = [], dict(fetch=0, grads=0)
+    for i in range(a.first, a.first + a.steps):
+        b = np.load(a.batches / f"b{i}.npz")
+        d = np.load(a.cache / f"b{i}.npz")
+        lengths = b["lengths"]
+        T, Bn = lengths.shape
+        ids = np.full((T, Bn), -1, np.int64); ids[lengths > 0] = b["indices"]
+        gpu = d["gpu"].astype(np.int64) if "gpu" in d else np.arange(Bn) // (Bn // G)
+        sizes = MH_SIZES if a.bag_sizes else [1] * T
+        order = np.argsort(-np.array(sizes), kind="stable")          # biggest bags on different GPUs
+        owner = np.empty(T, np.int64); owner[order] = np.arange(T) % G
+        F = np.zeros((4, G + 1, G + 1))
+        for t in range(T):
+            o = owner[t]
+            for g in range(G):
+                if g == o:
+                    continue
+                x = ids[t, (gpu == g) & (ids[t] >= 0)]
+                n = float(len(np.unique(x)) if dedup else len(x))
+                F[1, g, o] += n * 8.0 * sizes[t]; F[1, o, g] += n * B["data"]
+                F[2, g, o] += n * B["data"]
+                stats["fetch"] += int(n); stats["grads"] += int(n)
         out.append(F)
     return out, stats
 
@@ -333,7 +369,10 @@ def byte_model(a, fabric):
 
 def run(a, design):
     phys = a.bytes == "phys"
-    if design.startswith("shard"):
+    if design.startswith("pooled"):
+        flows, st = pooled_flows(a, byte_model(a, "shard"), design.endswith("_dedup"))
+        fab = Fabric(a.gpus, a.nv_bw, 1.0, a.lat_us)
+    elif design.startswith("shard"):
         flows, st = shard_flows(a, byte_model(a, "shard"), design)
         fab = Fabric(a.gpus, a.nv_bw, 1.0, a.lat_us)
     else:
@@ -372,6 +411,7 @@ def parser():
     ap.add_argument("--cxl-req", type=float, default=8.0, help="wire bytes of a request per 64 B line")
     ap.add_argument("--cxl-data", type=float, default=72.0, help="wire bytes of a data message per 64 B line")
     ap.add_argument("--cxl-ack", type=float, default=8.0)
+    ap.add_argument("--bag-sizes", action="store_true", help="pooled designs: MLPerf multi-hot bag sizes (index bytes)")
     ap.add_argument("--pool-bulk", action="store_true",
                     help="pool designs move rows as bulk transfers (host-DRAM hybrid over PCIe): "
                          "8 B index, row payload x (1 + --pci-overhead), no per-row ack")
