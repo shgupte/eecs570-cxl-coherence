@@ -187,7 +187,8 @@ GPU's CXL port and its PCIe port are the same physical link (63 GB/s).
   Published host platforms read about 77 to 110 GB/s. Measured CXL devices
   deliver about half their theoretical bandwidth, which would put the pool
   near the 4-port row. On those figures the pool is 1.3 to 2.5 times faster
-  on embedding traffic, which is 4 to 20% of a whole training step.
+  on embedding traffic. With about 3.5 ms of GPU compute per step (our rough
+  estimate), that is a 5 to 25% faster training step.
 
 Cost of holding 2 TB of embedding tables for 8 GPUs (prices from November
 2026 web sources; several are secondary or estimates):
