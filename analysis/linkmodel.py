@@ -24,6 +24,10 @@ Bytes per row
 Designs
   shard_sq, shard, shard_mig      gen_shard_traces.py (rows travel)
   pooled, pooled_dedup            table-wise sharding, pooled vectors travel (see pooled_flows)
+  nmp, nmp_dedup                  CXL pool with near-memory processing: the pool sums a bag
+                                  and returns one vector; one gradient vector per bag goes
+                                  back and the pool applies it to the bag's rows. Stats
+                                  uniq_rows / lookups = rows the pool touches per step.
   unc_agg, comm (+ _keep)         gen_step_traces.py
   with --pool-bulk, comm / comm_keep are the host-DRAM hybrid (rows in server
   memory, GPUs fetch and return gradients over PCIe; _keep = GPU-side cache
@@ -175,7 +179,7 @@ def shard_flows(a, B, mode):
     return out, stats
 
 
-def pooled_flows(a, B, dedup):
+def pooled_flows(a, B, dedup, to_pool=False):
     """Sharded all-to-all as TorchRec / HugeCTR do it for pooled (multi-hot)
     features: a table lives on one GPU (table-wise sharding); a GPU sends the
     bag's indices to the owner, the owner looks up and sums the rows and
@@ -196,8 +200,12 @@ def pooled_flows(a, B, dedup):
         order = np.argsort(-np.array(sizes), kind="stable")          # biggest bags on different GPUs
         owner = np.empty(T, np.int64); owner[order] = np.arange(T) % G
         F = np.zeros((4, G + 1, G + 1))
+        if to_pool:     # near-memory processing: the pool owns every table and does the pooling
+            k = d["keys"]
+            stats["uniq_rows"] = stats.get("uniq_rows", 0) + len(k)
+            stats["lookups"] = stats.get("lookups", 0) + int(d["raw"])
         for t in range(T):
-            o = owner[t]
+            o = G if to_pool else owner[t]
             for g in range(G):
                 if g == o:
                     continue
@@ -369,7 +377,10 @@ def byte_model(a, fabric):
 
 def run(a, design):
     phys = a.bytes == "phys"
-    if design.startswith("pooled"):
+    if design.startswith("nmp"):
+        flows, st = pooled_flows(a, byte_model(a, "pool"), design.endswith("_dedup"), to_pool=True)
+        fab = Fabric(a.gpus, a.gpu_bw, a.pool_bw, a.lat_us)
+    elif design.startswith("pooled"):
         flows, st = pooled_flows(a, byte_model(a, "shard"), design.endswith("_dedup"))
         fab = Fabric(a.gpus, a.nv_bw, 1.0, a.lat_us)
     elif design.startswith("shard"):
