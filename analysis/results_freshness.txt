@@ -1,0 +1,19 @@
+samples 30,601,276, steps 466, click rate 0.0321, lags [0, 2, 8, 32, 128]
+step 0: train loss 0.6953
+step 50: train loss 0.1385
+step 100: train loss 0.1326
+step 150: train loss 0.1303
+step 200: train loss 0.1398
+step 250: train loss 0.1334
+step 300: train loss 0.1259
+step 350: train loss 0.1268
+step 400: train loss 0.1340
+step 450: train loss 0.1315
+
+steps 200..465; one step = 65,536 samples (about half a minute of this stream)
+lag_steps,logloss,norm_entropy,auc,total_loss_increase_%,drift_only_increase_%
+0,0.13121,0.91749,0.72662,0.000,0.000
+2,0.13121,0.91755,0.72650,0.006,-0.010
+8,0.13127,0.91795,0.72605,0.049,0.058
+32,0.13149,0.91948,0.72421,0.216,0.074
+128,0.13269,0.92786,0.71446,1.130,0.075
