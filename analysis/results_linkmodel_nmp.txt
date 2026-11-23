@@ -1,0 +1,64 @@
+## mh_d1 pool gpu=63 ports=1
+design,rp,rh,w1,w2,step,crit,MB,stats
+nmp,0.00,17328.99,17328.99,0.00,34657.99,34657.99,2288.90,fetch=1597794 grads=1597794 uniq_rows=2679325 lookups=13133584
+nmp_dedup,0.00,3146.45,3146.45,0.00,6292.90,6292.90,429.91,fetch=297189 grads=297189 uniq_rows=2679325 lookups=13133584
+## mh_d1 pool gpu=63 ports=2
+design,rp,rh,w1,w2,step,crit,MB,stats
+nmp,0.00,8665.49,8665.49,0.00,17330.99,17330.99,2288.90,fetch=1597794 grads=1597794 uniq_rows=2679325 lookups=13133584
+nmp_dedup,0.00,1574.87,1574.87,0.00,3149.74,3149.74,429.91,fetch=297189 grads=297189 uniq_rows=2679325 lookups=13133584
+## mh_d1 pool gpu=63 ports=4
+design,rp,rh,w1,w2,step,crit,MB,stats
+nmp,0.00,4334.49,4334.49,0.00,8668.99,8668.99,2288.90,fetch=1597794 grads=1597794 uniq_rows=2679325 lookups=13133584
+nmp_dedup,0.00,791.48,791.48,0.00,1582.97,1582.97,429.91,fetch=297189 grads=297189 uniq_rows=2679325 lookups=13133584
+## mh_d1 pool gpu=63 ports=8
+design,rp,rh,w1,w2,step,crit,MB,stats
+nmp,0.00,2172.68,2172.68,0.00,4345.37,4345.37,2288.90,fetch=1597794 grads=1597794 uniq_rows=2679325 lookups=13133584
+nmp_dedup,0.00,405.63,405.63,0.00,811.26,811.26,429.91,fetch=297189 grads=297189 uniq_rows=2679325 lookups=13133584
+## mh_d1 pool gpu=121 ports=8
+design,rp,rh,w1,w2,step,crit,MB,stats
+nmp,0.00,1131.23,1131.23,0.00,2262.47,2262.47,2288.90,fetch=1597794 grads=1597794 uniq_rows=2679325 lookups=13133584
+nmp_dedup,0.00,211.20,211.20,0.00,422.39,422.39,429.91,fetch=297189 grads=297189 uniq_rows=2679325 lookups=13133584
+## mh_d1 sharded pooled nv=300
+design,rp,rh,w1,w2,step,crit,MB,stats
+pooled,0.00,448.35,356.54,0.00,804.89,804.89,1530.60,fetch=1398068 grads=1398068
+pooled_dedup,0.00,108.26,88.44,0.00,196.70,196.70,290.41,fetch=259971 grads=259971
+## mh_d1 sharded pooled nv=50
+design,rp,rh,w1,w2,step,crit,MB,stats
+pooled,0.00,2690.12,2139.24,0.00,4829.36,4829.36,1530.60,fetch=1398068 grads=1398068
+pooled_dedup,0.00,649.55,530.65,0.00,1180.20,1180.20,290.41,fetch=259971 grads=259971
+## mh_d1 sharded pooled nv=25
+design,rp,rh,w1,w2,step,crit,MB,stats
+pooled,0.00,5380.24,4278.48,0.00,9658.72,9658.72,1530.60,fetch=1398068 grads=1398068
+pooled_dedup,0.00,1299.11,1061.29,0.00,2360.40,2360.40,290.41,fetch=259971 grads=259971
+## d1 pool gpu=63 ports=1
+design,rp,rh,w1,w2,step,crit,MB,stats
+nmp,0.00,17328.99,17328.99,0.00,34657.99,34657.99,2196.30,fetch=1597794 grads=1597794 uniq_rows=163628 lookups=1597794
+nmp_dedup,0.00,3146.45,3146.45,0.00,6292.90,6292.90,398.78,fetch=297189 grads=297189 uniq_rows=163628 lookups=1597794
+## d1 pool gpu=63 ports=2
+design,rp,rh,w1,w2,step,crit,MB,stats
+nmp,0.00,8665.49,8665.49,0.00,17330.99,17330.99,2196.30,fetch=1597794 grads=1597794 uniq_rows=163628 lookups=1597794
+nmp_dedup,0.00,1574.87,1574.87,0.00,3149.74,3149.74,398.78,fetch=297189 grads=297189 uniq_rows=163628 lookups=1597794
+## d1 pool gpu=63 ports=4
+design,rp,rh,w1,w2,step,crit,MB,stats
+nmp,0.00,4334.49,4334.49,0.00,8668.99,8668.99,2196.30,fetch=1597794 grads=1597794 uniq_rows=163628 lookups=1597794
+nmp_dedup,0.00,791.48,791.48,0.00,1582.97,1582.97,398.78,fetch=297189 grads=297189 uniq_rows=163628 lookups=1597794
+## d1 pool gpu=63 ports=8
+design,rp,rh,w1,w2,step,crit,MB,stats
+nmp,0.00,2172.68,2172.68,0.00,4345.37,4345.37,2196.30,fetch=1597794 grads=1597794 uniq_rows=163628 lookups=1597794
+nmp_dedup,0.00,405.63,405.63,0.00,811.26,811.26,398.78,fetch=297189 grads=297189 uniq_rows=163628 lookups=1597794
+## d1 pool gpu=121 ports=8
+design,rp,rh,w1,w2,step,crit,MB,stats
+nmp,0.00,1131.23,1131.23,0.00,2262.47,2262.47,2196.30,fetch=1597794 grads=1597794 uniq_rows=163628 lookups=1597794
+nmp_dedup,0.00,211.20,211.20,0.00,422.39,422.39,398.78,fetch=297189 grads=297189 uniq_rows=163628 lookups=1597794
+## d1 sharded pooled nv=300
+design,rp,rh,w1,w2,step,crit,MB,stats
+pooled,0.00,392.16,387.66,0.00,779.82,779.82,1449.91,fetch=1398121 grads=1398121
+pooled_dedup,0.00,88.28,87.51,0.00,175.79,175.79,263.23,fetch=260016 grads=260016
+## d1 sharded pooled nv=50
+design,rp,rh,w1,w2,step,crit,MB,stats
+pooled,0.00,2352.93,2325.98,0.00,4678.91,4678.91,1449.91,fetch=1398121 grads=1398121
+pooled_dedup,0.00,529.69,525.06,0.00,1054.74,1054.74,263.23,fetch=260016 grads=260016
+## d1 sharded pooled nv=25
+design,rp,rh,w1,w2,step,crit,MB,stats
+pooled,0.00,4705.86,4651.95,0.00,9357.82,9357.82,1449.91,fetch=1398121 grads=1398121
+pooled_dedup,0.00,1059.37,1050.11,0.00,2109.49,2109.49,263.23,fetch=260016 grads=260016

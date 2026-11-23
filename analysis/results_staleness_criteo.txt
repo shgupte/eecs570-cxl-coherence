@@ -1,0 +1,12 @@
+delay=0 seed=0 lr_emb=0.0004 logloss=0.13097 auc=0.73088
+delay=0 seed=0 lr_emb=0.002 logloss=0.13094 auc=0.73457
+delay=0 seed=1 lr_emb=0.002 logloss=0.13278 auc=0.74091
+delay=0 seed=2 lr_emb=0.002 logloss=0.13093 auc=0.74165
+delay=1 seed=0 lr_emb=0.0004 logloss=0.13055 auc=0.73204
+delay=1 seed=0 lr_emb=0.002 logloss=0.13129 auc=0.73786
+delay=1 seed=1 lr_emb=0.002 logloss=0.12996 auc=0.74414
+delay=1 seed=2 lr_emb=0.002 logloss=0.13532 auc=0.74181
+delay=4 seed=0 lr_emb=0.0004 logloss=0.13043 auc=0.73299
+delay=4 seed=0 lr_emb=0.002 logloss=0.12876 auc=0.74588
+delay=4 seed=1 lr_emb=0.002 logloss=0.13064 auc=0.74153
+delay=8 seed=2 lr_emb=0.002 logloss=0.13258 auc=0.73458

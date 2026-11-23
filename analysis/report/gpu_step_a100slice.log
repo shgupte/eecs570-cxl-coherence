@@ -1,0 +1,32 @@
+NVIDIA A100 80GB PCIe, 81920 MiB
+Model name:          Intel(R) Xeon(R) Platinum 8358P CPU @ 2.60GHz
+gpu: NVIDIA A100 80GB PCIe MIG 3g.40gb | torch 2.6.0+cu124 | cpu threads 16
+tables: 26, rows 1,003,210,637 (478.4 GiB at dim 128)
+
+== embeddings in GPU memory (52,000,000 rows, 24.8 GiB)
+batch   8192 amp=0: lookup 0.479 ms, compute (fwd+bwd+dense update) 30.311 ms, embedding update 1.189 ms, step 31.978 ms
+batch  65536 amp=0: lookup 3.487 ms, compute (fwd+bwd+dense update) 235.129 ms, embedding update 9.033 ms, step 247.648 ms
+batch   8192 amp=1: lookup 0.477 ms, compute (fwd+bwd+dense update) 9.431 ms, embedding update 1.168 ms, step 11.076 ms
+batch  65536 amp=1: lookup 3.489 ms, compute (fwd+bwd+dense update) 70.298 ms, embedding update 9.012 ms, step 82.799 ms
+
+== embeddings in host memory (1,003,210,637 rows, 478.4 GiB)
+/var/spool/slurmd.spool/job66279508/slurm_script: line 15: 2867503 Killed                  /home/bany/bin/python3 analysis/gpu_step_bench.py --batches $D/batches/d1 --cache $D/cache/d1 ${ARGS:-}
+[2026-11-17T09:08:17.172] error: Detected 1 oom_kill event in StepId=66279508.batch. Some of the step tasks have been OOM Killed.
+NVIDIA A100 80GB PCIe, 81920 MiB
+Model name:          Intel(R) Xeon(R) Platinum 8358P CPU @ 2.60GHz
+gpu: NVIDIA A100 80GB PCIe MIG 3g.40gb | torch 2.6.0+cu124 | cpu threads 16
+tables: 26, rows 1,003,210,637 (478.4 GiB at dim 128)
+
+== embeddings in GPU memory (52,000,000 rows, 24.8 GiB)
+batch   8192 amp=0: lookup 0.481 ms, compute (fwd+bwd+dense update) 30.375 ms, embedding update 1.195 ms, step 32.052 ms
+batch  65536 amp=0: lookup 3.496 ms, compute (fwd+bwd+dense update) 235.938 ms, embedding update 9.080 ms, step 248.515 ms
+batch   8192 amp=1: lookup 0.480 ms, compute (fwd+bwd+dense update) 9.467 ms, embedding update 1.172 ms, step 11.119 ms
+batch  65536 amp=1: lookup 3.494 ms, compute (fwd+bwd+dense update) 70.362 ms, embedding update 9.020 ms, step 82.876 ms
+
+== embeddings in host memory (208,000,000 rows, 99.2 GiB)
+table filled in 6 s
+threads  1: rows/step 298,272 (153 MB) | unique 74.51 ms | gather 40.89 ms (3.7 GB/s) | scatter-add 97.72 ms (1.6 GB/s) | one GPU share: to GPU 1.132 ms, compute 15.126 ms, grads back 18.363 ms
+threads  2: rows/step 298,272 (153 MB) | unique 74.17 ms | gather 20.53 ms (7.4 GB/s) | scatter-add 55.23 ms (2.8 GB/s) | one GPU share: to GPU 1.130 ms, compute 15.146 ms, grads back 15.042 ms
+threads  4: rows/step 298,272 (153 MB) | unique 74.11 ms | gather 11.83 ms (12.9 GB/s) | scatter-add 29.87 ms (5.1 GB/s) | one GPU share: to GPU 1.135 ms, compute 15.161 ms, grads back 14.812 ms
+threads  8: rows/step 298,272 (153 MB) | unique 73.90 ms | gather 9.81 ms (15.6 GB/s) | scatter-add 20.73 ms (7.4 GB/s) | one GPU share: to GPU 1.123 ms, compute 15.111 ms, grads back 14.325 ms
+threads 16: rows/step 298,272 (153 MB) | unique 78.62 ms | gather 14.95 ms (10.2 GB/s) | scatter-add 27.83 ms (5.5 GB/s) | one GPU share: to GPU 1.310 ms, compute 15.101 ms, grads back 16.777 ms

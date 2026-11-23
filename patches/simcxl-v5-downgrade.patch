@@ -1,0 +1,24 @@
+--- a/src/mem/ruby/protocol/CXL_MESI_Two_Level-L1cache.sm	2026-11-15 09:59:38.464262699 -0500
++++ b/src/mem/ruby/protocol/CXL_MESI_Two_Level-L1cache.sm	2026-11-15 09:59:38.416258875 -0500
+@@ -1192,14 +1192,18 @@
+     l_popRequestQueue;
+   }
+ 
+-  // the L2 recalls the data for another reader; keep a shared copy
+-  transition(M, Downgrade, S) {
++  // the L2 recalls the data for another reader. The old owner gives up its
++  // copy: the L2 does not list it as a sharer, and later commutative updates
++  // of the other readers would leave a kept copy stale.
++  transition(M, Downgrade, I) {
++    forward_eviction_to_cpu;
+     d2_sendRspToL2;
+     d2_sendDataToL2;
+     l_popRequestQueue;
+   }
+ 
+-  transition(E, Downgrade, S) {
++  transition(E, Downgrade, I) {
++    forward_eviction_to_cpu;
+     fi_sendInvAck;
+     l_popRequestQueue;
+   }
